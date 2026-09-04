@@ -87,3 +87,30 @@ Sector-relative is a stretch goal, and financials fall back to NIFTY if we build
 `^CNXFIN` returns 1 bar and `NIFTY_FIN_SERVICE.NS` likewise — there is no working sector index for
 financials, a large slice of any Indian watchlist. A signal that silently does not apply to
 banking names is worse than one benchmark applied consistently.
+
+---
+
+## 2026-09-04 — Supplement Yahoo name search with a small NSE directory
+
+**Decision.** Keep Yahoo as the market-data authority and add a small, curated NSE name-to-ticker
+fallback for common companies in search. Adding a result still validates it with Yahoo's quote
+endpoint before it can enter a watchlist.
+
+**Why.** Yahoo search is incomplete for NSE company-name queries: `infosys` returned overseas
+listings but omitted `INFY.NS`, while a ticker query for `INFY` or `INFY.NS` resolved it correctly.
+The fallback makes the name-search promise reliable without treating an unverified local mapping as
+market data or broadening the provider architecture.
+
+---
+
+## 2026-09-04 — Smoke tests load local configuration explicitly
+
+**Decision.** `npm run smoke` loads `.env.local` if it exists and runs with Node's `react-server`
+export condition, matching Next.js's resolution of `server-only` modules.
+
+**Why.** Next.js loads `.env.local` automatically, but standalone `tsx` does not. Without this,
+the documented smoke command fails with `DATABASE_URL is not set` even when local development is
+correctly configured. A plain Node runner also resolves `server-only` to its intentional throwing
+client stub; the React server condition resolves its empty server marker instead. Production still
+supplies environment variables through its host; no local secret is committed or required by the
+script.
