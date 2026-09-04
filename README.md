@@ -17,7 +17,8 @@ While you were away
   ○ 4 unchanged
 ```
 
-Three kinds of news a conventional watchlist cannot express:
+*That digest is where the product is going — see **Status** below for what is built
+today.* Three kinds of news a conventional watchlist cannot express:
 
 - **Condition met** — the thing you were waiting for happened.
 - **Thesis contradicted** — the reasoning behind why you were watching no longer holds.
