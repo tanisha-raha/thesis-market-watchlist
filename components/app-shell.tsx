@@ -30,12 +30,12 @@ export function AppShell({ email, active, currentSymbol, children }: AppShellPro
             <Link href="/watchlist" aria-current={active === "watchlist" ? "page" : undefined} className={navClass("watchlist")}>
               Watchlist
             </Link>
+            <AskThesisDrawer currentSymbol={currentSymbol} />
             <Link href="/watchlist#add-stock" className="text-accent transition-colors hover:text-ink">
               + Add stock
             </Link>
           </nav>
           <span className="hidden max-w-40 truncate text-faint sm:inline" title={email}>{email}</span>
-          <AskThesisDrawer currentSymbol={currentSymbol} />
           <form action={signOut}>
             <button className="text-muted transition-colors hover:text-ink">Sign out</button>
           </form>

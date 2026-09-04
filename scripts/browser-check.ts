@@ -35,7 +35,10 @@ await Promise.all([
 ]);
 check("signup lands on /digest", page.url().includes("/digest"), page.url());
 check("shows the signed-in email", await page.getByText(email).isVisible());
-await page.getByRole("button", { name: "Ask THESIS" }).click();
+const primaryNav = page.getByRole("navigation", { name: "Main navigation" });
+const askTrigger = primaryNav.getByRole("button", { name: "Ask THESIS" });
+check("Ask THESIS is visible in primary desktop navigation", await askTrigger.isVisible());
+await askTrigger.click();
 check("Ask THESIS opens for an authenticated user", await page.getByRole("heading", { name: "Ask THESIS" }).isVisible());
 await page.getByRole("button", { name: "What changed while I was away?" }).click();
 await page.getByText(/THESIS has no new detected changes|THESIS found/).waitFor({ timeout: 15_000 });
@@ -45,6 +48,7 @@ await page.getByText(/can’t recommend whether you should buy, sell, or hold/).
 await page.getByRole("button", { name: "Close Ask THESIS" }).click();
 await page.getByRole("link", { name: "Watchlist" }).click();
 await page.waitForURL("**/watchlist");
+check("Ask THESIS is visible on Watchlist", await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Ask THESIS" }).isVisible());
 check("empty state shown", await page.getByText("Nothing on your watchlist yet").isVisible());
 
 console.log("\nadd a symbol");
@@ -66,6 +70,11 @@ check("no advice language", !/\b(buy|sell|hold|target price|recommend)\b/i.test(
 console.log("\nsymbol detail");
 await page.getByRole("link", { name: "RELIANCE.NS" }).click();
 await page.waitForURL("**/symbol/RELIANCE.NS", { timeout: 20_000 });
+const detailAsk = page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Ask THESIS" });
+check("Ask THESIS is visible on Symbol Detail", await detailAsk.isVisible());
+await detailAsk.click();
+check("Ask THESIS opens from Symbol Detail", await page.getByRole("heading", { name: "Ask THESIS" }).isVisible());
+await page.getByRole("button", { name: "Close Ask THESIS" }).click();
 const detail = await page.locator("main").innerText();
 check("watchlist symbol opens its detail", /RELIANCE\.NS/.test(detail));
 check("detail carries price context", /₹[\d,]+\.\d{2}/.test(detail) && /vs prev close/.test(detail));
