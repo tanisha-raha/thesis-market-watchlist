@@ -1,9 +1,14 @@
 node_modules/
 .next/
-.env
-.env.local
 .DS_Store
 next-env.d.ts
 tsconfig.tsbuildinfo
 .vercel
+
+# Every env file except the committed template. The glob matters: listing
+# .env and .env.local individually left .env.production and friends tracked.
+.env*
+!.env.example
+
+# Uncompressed seed data. The committed .gz files are the ones that ship.
 seed/*.ndjson

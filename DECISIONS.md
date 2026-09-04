@@ -463,6 +463,22 @@ what a careful reader would catch.
 
 ## 2026-09-04 — The thesis rules were calibrated against seeded history, not just tested
 
+> **The short answer, for "how did you avoid false alarms?"**
+>
+> We didn't trust the tests. Every contradiction rule passed its unit tests on the
+> first run, so we instantiated all six thesis types on all fifty symbols across
+> sixty days of real history and measured how often each actually fired. They
+> contradicted 92–100% of symbols — a system that tells you your reasoning failed on
+> every stock you own is telling you nothing. Three defects, none test-visible: the
+> cooldown never fired because daily sessions sit exactly 24h apart, on the boundary;
+> the "two of three independent conditions" weren't independent, because 20-day
+> return and price-vs-20-day-average are nearly the same measurement, so two-of-three
+> collapsed to one-of-two; and there was no persistence requirement, so a single day
+> below a moving average counted. We fixed the first structurally rather than with a
+> bigger constant — a contradiction is a state, not a recurring event — added a
+> volatility-scaled noise floor chosen by sweeping it, and required three consecutive
+> sessions. Rates now run 18–56%. `npm run calibrate` reproduces the table.
+
 **Why this section exists.** Every rule below passed its unit tests from the first
 run. The tests were not the problem. Run across 60 days of real history the same
 rules contradicted 92–100% of symbols, which means a user would be told their
