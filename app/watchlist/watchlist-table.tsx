@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { removeFromWatchlist } from "@/app/actions";
 import { formatAge, formatIST } from "@/lib/time";
 import { isUserVisible } from "@/lib/feed-health";
@@ -109,4 +110,3 @@ export function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
     </table>
   );
 }
-import Link from "next/link";

@@ -4,8 +4,8 @@ import { useActionState, useState } from "react";
 import { signIn, signUp, type FormState } from "@/app/actions";
 
 const field =
-  "mt-1 w-full rounded-sm border border-line bg-surface px-3 py-2 text-body " +
-  "outline-none transition-colors focus:border-accent";
+  "mt-1 w-full border border-line bg-paper/60 px-3 py-2.5 text-body text-ink placeholder:text-faint " +
+  "outline-none transition-colors focus:border-accent focus:shadow-[0_0_0_3px_rgba(55,211,173,.12)]";
 
 export function AuthForm() {
   const [mode, setMode] = useState<"in" | "up">("in");
@@ -15,7 +15,7 @@ export function AuthForm() {
   return (
     <div>
       {/* Segmented control: the selected tab carries the ink fill, the other is quiet. */}
-      <div className="mb-6 inline-flex rounded-sm border border-line bg-surface p-0.5 text-meta">
+      <div className="mb-6 grid grid-cols-2 border-b border-line text-meta">
         {([["in", "Sign in"], ["up", "Create account"]] as const).map(([m, label]) => (
           <button
             key={m}
@@ -23,10 +23,10 @@ export function AuthForm() {
             onClick={() => setMode(m)}
             aria-pressed={mode === m}
             className={
-              "rounded-[2px] px-3 py-1.5 transition-colors " +
+              "border-b-2 px-3 py-2 text-left font-medium uppercase tracking-[0.08em] transition-colors " +
               (mode === m
-                ? "bg-ink text-white"
-                : "text-muted hover:text-ink")
+                ? "border-accent text-accent"
+                : "border-transparent text-muted hover:text-ink")
             }
           >
             {label}
@@ -55,8 +55,8 @@ export function AuthForm() {
         <button
           type="submit"
           disabled={pending}
-          className="w-full rounded-sm bg-ink py-2.5 text-body font-medium text-white
-                     transition-opacity hover:opacity-90 disabled:opacity-40"
+          className="w-full bg-accent py-3 text-body font-semibold text-paper
+                     transition-all hover:bg-[#61e4c4] active:translate-y-px disabled:opacity-40"
         >
           {pending ? "…" : mode === "in" ? "Sign in" : "Create account"}
         </button>

@@ -68,8 +68,8 @@ export function AddSymbolForm() {
           />
           <button
             type="submit" disabled={pending || !query.trim()}
-            className="shrink-0 rounded-sm bg-ink px-4 py-2 text-body font-medium text-white
-                       transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="shrink-0 bg-accent px-4 py-2 text-body font-semibold text-paper
+                       transition-colors hover:bg-[#61e4c4] disabled:opacity-40"
           >
             {pending ? "…" : "Add"}
           </button>
@@ -107,7 +107,7 @@ export function AddSymbolForm() {
               <input
                 type="radio" name="thesisType" value={o.value}
                 checked={type === o.value} onChange={() => setType(o.value)}
-                className="accent-ink"
+                className="accent-accent"
               />
               <span className={type === o.value ? "text-ink" : "text-muted"}>{o.label}</span>
             </label>

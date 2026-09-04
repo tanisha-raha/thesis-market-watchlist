@@ -10,13 +10,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen">
-        <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 sm:px-6">
-          <main className="flex-1 py-8 sm:py-12">{children}</main>
+        <div className="flex min-h-screen flex-col">
+          <main className="flex-1 py-5 sm:py-8">{children}</main>
           {/*
             Visible but out of the way: a hairline rule, faint text, and no
             emphasis. It is a standing statement, not a notice to be read twice.
           */}
-          <footer className="mt-16 border-t border-line pt-5 pb-8 text-micro leading-relaxed text-faint">
+          <footer className="mx-auto mt-16 w-full max-w-5xl border-t border-line px-4 pb-8 pt-5 text-micro leading-relaxed text-faint sm:px-6">
             <p>
               Thesis is an attention tool, not an advisory product. It reports changes to
               conditions you defined. It does not make recommendations, and nothing here is
