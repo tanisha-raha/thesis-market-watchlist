@@ -26,17 +26,65 @@ Three kinds of news a conventional watchlist cannot express:
 
 ---
 
+## Status
+
+Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
+
+**Working now, deployed and verified end to end**
+
+- Email/password auth with server-side sessions (tokens stored hashed)
+- Symbol search across NSE, add and remove from a watchlist
+- Live prices, each shown with the exchange timestamp it was reported at and its age
+- Scheduled ingestion behind a protected route — the only writer of quotes
+- Append-only storage: daily bars, an intraday price path, per-symbol statistics
+- `symbol_stats`: 20-day realized volatility, median volume, 20-day MA, 60-day beta
+  vs NIFTY, and 52-week / 20-day levels — all on the adjusted series, traded sessions only
+- Corporate-action **detection** from provider-history restatement, with uniformity,
+  tolerance and plausibility guards
+- Feed resilience: batch reconciliation for silently dropped symbols, transient vs
+  terminal miss classification, last-known-good serving
+- Seeded history: 60 days of 5-minute bars and 2 years of daily bars for 51 symbols,
+  fetched locally and committed, so the deployed app never cold-backfills
+
+**In progress**
+
+- *Change engine* — anomaly detection and scoring on top of `symbol_stats`, with
+  cooldown, hysteresis and transient-event resolution
+- *Thesis engine* — capturing why you are watching, then evaluating triggers and
+  contradictions deterministically against market data
+- *Digest* — the "While you were away" surface, evidence panels, and the
+  missed-event replay
+
+The data model for all three is in place and populated; see [DECISIONS.md](DECISIONS.md)
+for the reasoning and the recorded cut list.
+
+---
+
 ## Setup
 
 Requires Node 20+ and a Postgres database.
 
 ```bash
+git clone https://github.com/tanisha-raha/thesis-market-watchlist.git
+cd thesis-market-watchlist
 npm install
-cp .env.example .env.local        # fill in DATABASE_URL, SESSION_SECRET, CRON_SECRET
+
+cp .env.example .env.local        # then fill in the three values below
 npm run db:migrate
-npm run seed:load                 # loads committed history — no network calls
-npm run dev
+npm run seed:load                 # loads committed history; makes no network calls
+npm run dev                       # http://localhost:3000
 ```
+
+`.env.local` needs three values:
+
+| Variable | How to get it |
+|---|---|
+| `DATABASE_URL` | Any Postgres URL — see the Docker one-liner below |
+| `SESSION_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `CRON_SECRET` | Any random string; only the ingestion route reads it |
+
+Seed data is committed to the repository, so a clean clone has two years of daily
+bars and sixty days of 5-minute bars without touching the network.
 
 A local Postgres via Docker, if you need one:
 
@@ -70,6 +118,21 @@ GET /api/ingest?stats=1    Authorization: Bearer $CRON_SECRET   # once daily, af
 ```
 
 It refuses every request when `CRON_SECRET` is unset rather than failing open.
+
+### Deployment
+
+Deployed as a single Next.js app on Vercel with Postgres on Neon.
+
+1. Set `DATABASE_URL`, `SESSION_SECRET` and `CRON_SECRET` in the project's environment.
+2. Run `npm run db:migrate` once against the production database.
+3. Run `npm run seed:load` once against it too, from a local checkout. History is
+   fetched locally and shipped as a committed file — the deployed app must never
+   perform a cold historical backfill, because Yahoo throttles datacenter IPs far
+   harder than residential ones.
+4. Scheduling is split by cadence. `vercel.json` runs the daily statistics recompute
+   after NSE close, which fits within the Hobby plan's once-per-day cron limit.
+   Frequent quote polling runs from `.github/workflows/poll.yml` every ten minutes
+   during market hours; it needs `INGEST_URL` and `CRON_SECRET` as repository secrets.
 
 ---
 

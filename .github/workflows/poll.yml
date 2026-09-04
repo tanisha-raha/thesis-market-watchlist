@@ -1,0 +1,33 @@
+# Frequent quote polling.
+#
+# Vercel's Hobby plan caps cron jobs at once per day, which is fine for the daily
+# stats recompute (see vercel.json) but useless for price polling. So the frequent
+# poll runs here instead — an external cron hitting a protected route, which is
+# exactly the shape the brief specifies.
+#
+# Requires two repository secrets:
+#   INGEST_URL    https://<your-deployment>/api/ingest
+#   CRON_SECRET   the same value set in the Vercel project's environment
+name: poll quotes
+
+on:
+  schedule:
+    # Every 10 minutes during NSE hours (09:15–15:30 IST = 03:45–10:00 UTC), Mon–Fri.
+    # GitHub schedules are best-effort and can run late under load; the ingestion
+    # path is idempotent, so a duplicated or delayed run is harmless.
+    - cron: "*/10 4-10 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ingestion
+        run: |
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.INGEST_URL }}")
+          echo "HTTP $code"; cat /tmp/body; echo
+          # A failed poll must fail the run so it is visible, but it is not fatal to
+          # the product: the app serves last-known-good with a visible timestamp.
+          [ "$code" = "200" ]
