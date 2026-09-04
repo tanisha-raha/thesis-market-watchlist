@@ -1,0 +1,13 @@
+{
+  "name": "thesis",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate:source": "tsx scripts/validate-source.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "yahoo-finance2": "^4.0.2"
+  }
+}

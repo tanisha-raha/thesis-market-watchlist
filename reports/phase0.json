@@ -1,0 +1,368 @@
+{
+  "runAt": "2026-09-04T06:01:23.264Z",
+  "check1": {
+    "bars": 65,
+    "expectedWeekdays": 65,
+    "first": "2026-06-08",
+    "last": "2026-09-04",
+    "nullFields": {
+      "open": 0,
+      "high": 0,
+      "low": 0,
+      "close": 0,
+      "volume": 0,
+      "adjclose": 0
+    },
+    "zeroVolume": 1,
+    "gaps": [],
+    "meta": {
+      "currency": "INR",
+      "tz": "Asia/Kolkata"
+    }
+  },
+  "check2": {
+    "bars": 65,
+    "onlyStock": [],
+    "onlyIndex": [],
+    "nullVolume": 1,
+    "zeroVolume": 1
+  },
+  "check3": {
+    "splitsFound": [
+      {
+        "symbol": "TRENT.NS",
+        "date": "2026-06-04",
+        "ratio": 1.5,
+        "numerator": 3,
+        "denominator": 2
+      },
+      {
+        "symbol": "HDFCBANK.NS",
+        "date": "2025-08-26",
+        "ratio": 2,
+        "numerator": 2,
+        "denominator": 1
+      },
+      {
+        "symbol": "NESTLEIND.NS",
+        "date": "2025-08-08",
+        "ratio": 2,
+        "numerator": 2,
+        "denominator": 1
+      },
+      {
+        "symbol": "BAJFINANCE.NS",
+        "date": "2025-06-16",
+        "ratio": 2,
+        "numerator": 2,
+        "denominator": 1
+      },
+      {
+        "symbol": "WIPRO.NS",
+        "date": "2024-12-03",
+        "ratio": 2,
+        "numerator": 2,
+        "denominator": 1
+      },
+      {
+        "symbol": "RELIANCE.NS",
+        "date": "2024-10-28",
+        "ratio": 2,
+        "numerator": 2,
+        "denominator": 1
+      },
+      {
+        "symbol": "PERSISTENT.NS",
+        "date": "2024-03-28",
+        "ratio": 2,
+        "numerator": 2,
+        "denominator": 1
+      },
+      {
+        "symbol": "NESTLEIND.NS",
+        "date": "2024-01-05",
+        "ratio": 10,
+        "numerator": 10,
+        "denominator": 1
+      }
+    ],
+    "verifications": [
+      {
+        "symbol": "TRENT.NS",
+        "splitDate": "2026-06-04",
+        "ratio": "3:2",
+        "prevBar": {
+          "date": "2026-06-03",
+          "close": 2838.39990234375,
+          "adjclose": 2834.2119140625
+        },
+        "splitBar": {
+          "date": "2026-06-04",
+          "close": 2837.60009765625,
+          "adjclose": 2833.4130859375
+        },
+        "returnOnCloseSeries": -0.0002817801278951489,
+        "returnOnAdjcloseSeries": -0.00028185193952380805,
+        "returnIfSeriesWereRaw": -0.33333333333333337,
+        "closeSeriesAppearsSplitAdjusted": true,
+        "adjcloseSeriesContinuous": true,
+        "verdict": "PASS — adjusted series is continuous across the split"
+      },
+      {
+        "symbol": "HDFCBANK.NS",
+        "splitDate": "2025-08-26",
+        "ratio": "2:1",
+        "prevBar": {
+          "date": "2025-08-25",
+          "close": 982.0499877929688,
+          "adjclose": 966.0717163085938
+        },
+        "splitBar": {
+          "date": "2025-08-26",
+          "close": 973.4000244140625,
+          "adjclose": 957.5625
+        },
+        "returnOnCloseSeries": -0.008808068312638476,
+        "returnOnAdjcloseSeries": -0.0088080586202315,
+        "returnIfSeriesWereRaw": -0.5,
+        "closeSeriesAppearsSplitAdjusted": true,
+        "adjcloseSeriesContinuous": true,
+        "verdict": "PASS — adjusted series is continuous across the split"
+      },
+      {
+        "symbol": "NESTLEIND.NS",
+        "splitDate": "2025-08-08",
+        "ratio": "2:1",
+        "prevBar": {
+          "date": "2025-08-07",
+          "close": 1117.300048828125,
+          "adjclose": 1105.9835205078125
+        },
+        "splitBar": {
+          "date": "2025-08-08",
+          "close": 1096.5,
+          "adjclose": 1085.39404296875
+        },
+        "returnOnCloseSeries": -0.01861635005739151,
+        "returnOnAdjcloseSeries": -0.018616441526731645,
+        "returnIfSeriesWereRaw": -0.5,
+        "closeSeriesAppearsSplitAdjusted": true,
+        "adjcloseSeriesContinuous": true,
+        "verdict": "PASS — adjusted series is continuous across the split"
+      }
+    ]
+  },
+  "check4": [
+    {
+      "symbol": "^NSEI",
+      "ok": true,
+      "bars": 23,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^NSEBANK",
+      "ok": true,
+      "bars": 23,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXIT",
+      "ok": true,
+      "bars": 23,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXAUTO",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXPHARMA",
+      "ok": true,
+      "bars": 23,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXFMCG",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXMETAL",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXENERGY",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXREALTY",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXINFRA",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXPSUBANK",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXMEDIA",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CNXFIN",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "NIFTY_FIN_SERVICE.NS",
+      "ok": true,
+      "bars": 1,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^CRSLDX",
+      "ok": true,
+      "bars": 23,
+      "last": "2026-09-04"
+    },
+    {
+      "symbol": "^NSMIDCP",
+      "ok": true,
+      "bars": 23,
+      "last": "2026-09-04"
+    }
+  ],
+  "check6": {
+    "fieldCount": 84,
+    "freshnessFields": {
+      "regularMarketTime": "2026-09-04T06:01:27.000Z",
+      "regularMarketPrice": 1326.9,
+      "marketState": "REGULAR",
+      "exchangeTimezoneName": "Asia/Kolkata",
+      "exchangeTimezoneShortName": "IST",
+      "exchangeDataDelayedBy": 15,
+      "quoteSourceName": "Free Realtime Quote",
+      "hasPrePostMarketData": false,
+      "fullExchangeName": "NSE",
+      "priceHint": 2,
+      "sourceInterval": 15,
+      "triggerable": true,
+      "currency": "INR"
+    },
+    "computedAgeSeconds": 6,
+    "allKeys": [
+      "ask",
+      "askSize",
+      "averageAnalystRating",
+      "averageDailyVolume10Day",
+      "averageDailyVolume3Month",
+      "bid",
+      "bidSize",
+      "bookValue",
+      "corporateActions",
+      "cryptoTradeable",
+      "currency",
+      "customPriceAlertConfidence",
+      "dividendRate",
+      "dividendYield",
+      "earningsCallTimestampEnd",
+      "earningsCallTimestampStart",
+      "earningsTimestamp",
+      "earningsTimestampEnd",
+      "earningsTimestampStart",
+      "epsCurrentYear",
+      "epsForward",
+      "epsTrailingTwelveMonths",
+      "esgPopulated",
+      "exchange",
+      "exchangeDataDelayedBy",
+      "exchangeTimezoneName",
+      "exchangeTimezoneShortName",
+      "fiftyDayAverage",
+      "fiftyDayAverageChange",
+      "fiftyDayAverageChangePercent",
+      "fiftyTwoWeekChangePercent",
+      "fiftyTwoWeekHigh",
+      "fiftyTwoWeekHighChange",
+      "fiftyTwoWeekHighChangePercent",
+      "fiftyTwoWeekLow",
+      "fiftyTwoWeekLowChange",
+      "fiftyTwoWeekLowChangePercent",
+      "fiftyTwoWeekRange",
+      "financialCurrency",
+      "firstTradeDateMilliseconds",
+      "forwardPE",
+      "fullExchangeName",
+      "fulldayChange",
+      "fulldayChangePercent",
+      "fulldayPrice",
+      "gmtOffSetMilliseconds",
+      "hasPrePostMarketData",
+      "impliedSharesOutstanding",
+      "isEarningsDateEstimate",
+      "language",
+      "longName",
+      "market",
+      "marketCap",
+      "marketState",
+      "messageBoardId",
+      "priceEpsCurrentYear",
+      "priceHint",
+      "priceToBook",
+      "quoteSourceName",
+      "quoteType",
+      "region",
+      "regularMarketChange",
+      "regularMarketChangePercent",
+      "regularMarketDayHigh",
+      "regularMarketDayLow",
+      "regularMarketDayRange",
+      "regularMarketOpen",
+      "regularMarketPreviousClose",
+      "regularMarketPrice",
+      "regularMarketTime",
+      "regularMarketVolume",
+      "sharesOutstanding",
+      "shortName",
+      "sourceInterval",
+      "symbol",
+      "tradeable",
+      "trailingAnnualDividendRate",
+      "trailingAnnualDividendYield",
+      "trailingPE",
+      "triggerable",
+      "twoHundredDayAverage",
+      "twoHundredDayAverageChange",
+      "twoHundredDayAverageChangePercent",
+      "typeDisp"
+    ]
+  },
+  "check5": {
+    "totalMs": 4009,
+    "requestsPerSecond": 14.97,
+    "succeeded": 60,
+    "failed": 0,
+    "firstFailureIndex": null,
+    "distinctErrors": [],
+    "statuses": [],
+    "slowestMs": 187
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "sectorDepth": {
+    "^NSEBANK": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXIT": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXAUTO": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXPHARMA": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXFMCG": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXMETAL": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXENERGY": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXREALTY": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXFIN": {
+      "bars": 1,
+      "first": "2026-09-04",
+      "last": "2026-09-04",
+      "usable": false
+    },
+    "^CNXPSUBANK": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXINFRA": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    },
+    "^CNXMEDIA": {
+      "bars": 501,
+      "first": "2024-09-04",
+      "last": "2026-09-04",
+      "usable": true
+    }
+  },
+  "rawVsAdjusted": {
+    "splitBakedIntoClose": true,
+    "closeAfterWindow": 1305.300048828125,
+    "closeSpanningWindow": 1305.300048828125,
+    "adjCloseRatioMin": 0.991437883566686,
+    "adjCloseRatioMax": 1,
+    "dividends": [
+      {
+        "date": "2025-08-14",
+        "amount": 5.5
+      },
+      {
+        "date": "2026-06-05",
+        "amount": 6
+      }
+    ],
+    "implication": "Yahoo returns NO raw (unadjusted) price series. Historical `close` is retroactively restated on a split."
+  },
+  "intraday": {
+    "1h@60d": {
+      "bars": 310,
+      "first": "2026-07-06T05:45:00.000Z",
+      "last": "2026-09-04T06:02:40.000Z"
+    },
+    "1h@730d": {
+      "bars": 3500,
+      "first": "2024-09-04T05:45:00.000Z",
+      "last": "2026-09-04T06:02:40.000Z"
+    },
+    "5m@30d": {
+      "bars": 1652,
+      "first": "2026-08-05T06:00:00.000Z",
+      "last": "2026-09-04T06:02:34.000Z"
+    },
+    "5m@60d": {
+      "bars": 3302,
+      "first": "2026-07-06T06:00:00.000Z",
+      "last": "2026-09-04T06:02:40.000Z"
+    },
+    "1m@7d": {
+      "bars": 1876,
+      "first": "2026-08-28T06:03:00.000Z",
+      "last": "2026-09-04T06:02:40.000Z"
+    },
+    "1m@30d": {
+      "error": "1m data not available for startTime=1785909761 and endTime=1788501761. Only 8 days worth of 1m granularity data are allowed to be fetched pe"
+    }
+  },
+  "batchedQuote": {
+    "symbols": 50,
+    "returned": 49,
+    "ms": 3784,
+    "ok": true
+  },
+  "concurrentChart20": {
+    "ok": 19,
+    "failed": 1,
+    "ms": 880,
+    "errors": [
+      "Error: No data found, symbol may be delisted"
+    ]
+  },
+  "burst250": {
+    "ok": 250,
+    "failed": 0,
+    "firstFailureIndex": null,
+    "ms": 24225,
+    "distinctErrors": []
+  }
+}
