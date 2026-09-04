@@ -18,6 +18,7 @@ import { ingestQuotes, ingestHistory, refreshSymbolStats } from "@/lib/ingestion
 import { recordPollOutcome } from "@/lib/feed-health";
 import { computeStats } from "@/lib/stats";
 import { ReplayMarketDataProvider } from "@/lib/market/replay";
+import { detectCorporateAction, isCandidate } from "@/lib/corporate-actions";
 import type { Bar, Quote } from "@/lib/market/types";
 
 let passed = 0;
@@ -221,6 +222,41 @@ section("5. rollback removes every partial write, feed-health included");
 
   const failedBatch = (await db.select().from(ingestionBatches).orderBy(sql`id desc`).limit(1))[0];
   check("the batch is recorded as FAILED, not COMPLETED", failedBatch.status === "FAILED", failedBatch.status);
+}
+
+/* ------------------------------------------------------------------------- */
+section("corporate-action guards (pure — protects a must-land Phase 4 input)");
+{
+  const span = (f: number, c: number) => [
+    { date: "2026-08-03", first: f, current: c },
+    { date: "2026-08-04", first: f * 1.1, current: c * 1.1 },
+    { date: "2026-08-05", first: f * 1.2, current: c * 1.2 },
+  ];
+
+  const split = detectCorporateAction(SYM, span(200, 100));           // uniform 0.5
+  check("a uniform, plausible 2:1 shift validates",
+    split.status === "VALIDATED", `${split.status} — ${split.reason}`);
+
+  const oneBar = detectCorporateAction(SYM, [
+    { date: "2026-08-03", first: 200, current: 100 },
+    { date: "2026-08-04", first: 220, current: 220 },
+    { date: "2026-08-05", first: 240, current: 240 },
+  ]);
+  check("a single restated bar is rejected as non-uniform",
+    oneBar.status === "REJECTED", `${oneBar.status} — ${oneBar.reason}`);
+
+  const odd = detectCorporateAction(SYM, span(100, 137));             // uniform but implausible
+  check("a uniform but implausible factor is rejected",
+    odd.status === "REJECTED", `${odd.status} — ${odd.reason}`);
+
+  const thin = detectCorporateAction(SYM, [{ date: "2026-08-03", first: 200, current: 100 }]);
+  check("too few bars yields INSUFFICIENT rather than a verdict",
+    thin.status === "INSUFFICIENT", thin.status);
+
+  const a = detectCorporateAction(SYM, span(200, 100));
+  const b = detectCorporateAction(SYM, span(200, 100.02));            // slightly different factor
+  check("the fingerprint is stable across a slightly different factor",
+    isCandidate(a) && isCandidate(b) && a.fingerprint === b.fingerprint);
 }
 
 await reset();
