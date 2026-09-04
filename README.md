@@ -55,6 +55,8 @@ Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
   stored market evidence without an AI dependency
 - *Digest and symbol detail* — a "While you were away" view, evidence panels,
   missed-event replay, and a traceable per-symbol view
+- *Ask THESIS* — an authenticated, read-only explanation drawer over the current
+  user’s watchlist, thesis and committed evidence
 
 See [DECISIONS.md](DECISIONS.md) for the reasoning, calibration record, and
 intentional cut list.
@@ -168,6 +170,14 @@ filters by watchlist membership, thesis relevance and per-user watermark.
 **Theses are structured and machine-verifiable.** Every trigger and contradiction is
 evaluated deterministically against market data. A contradiction requires at least
 2 of 3 independent conditions, so one noisy signal cannot fire it.
+
+**Ask THESIS is an optional AI explanation layer over deterministic system outputs. It
+does not detect events, determine thesis validity, or provide investment advice.** The
+core product is deterministic and fully functional without AI. The AI layer is optional
+presentation garnish, not a system dependency. The shipped drawer uses a bounded,
+read-only explanation path: it receives only the authenticated user’s relevant
+watchlist, theses, digest output and recent evidence, never a database dump. It labels
+explicit demo replay context and declines advice or prediction requests.
 
 **Two storage facts that shaped the schema.** Yahoo returns no raw price series — its
 `close` is already split-adjusted and is restated retroactively across all history

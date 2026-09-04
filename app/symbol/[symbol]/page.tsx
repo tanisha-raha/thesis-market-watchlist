@@ -81,7 +81,7 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
     : [];
 
   return (
-    <AppShell email={user.email} active="watchlist">
+    <AppShell email={user.email} active="watchlist" currentSymbol={symbol}>
       <header className="mt-8 border-b border-line pb-4">
         <div className="flex items-baseline justify-between gap-4">
           <div>

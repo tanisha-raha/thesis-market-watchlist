@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { signOut } from "@/app/actions";
+import { AskThesisDrawer } from "@/components/ask-thesis-drawer";
 
 type AppShellProps = {
   email: string;
   active: "digest" | "watchlist";
+  currentSymbol?: string;
   children: React.ReactNode;
 };
 
@@ -12,7 +14,7 @@ type AppShellProps = {
  * move between the two working surfaces, or leave the session.  Pages own their
  * content; this component only prevents that orientation from drifting.
  */
-export function AppShell({ email, active, children }: AppShellProps) {
+export function AppShell({ email, active, currentSymbol, children }: AppShellProps) {
   const navClass = (item: "digest" | "watchlist") =>
     `transition-colors ${active === item ? "text-ink" : "text-muted hover:text-ink"}`;
 
@@ -33,6 +35,7 @@ export function AppShell({ email, active, children }: AppShellProps) {
             </Link>
           </nav>
           <span className="hidden max-w-40 truncate text-faint sm:inline" title={email}>{email}</span>
+          <AskThesisDrawer currentSymbol={currentSymbol} />
           <form action={signOut}>
             <button className="text-muted transition-colors hover:text-ink">Sign out</button>
           </form>

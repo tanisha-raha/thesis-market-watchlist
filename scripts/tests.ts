@@ -8,7 +8,7 @@
  *
  * Run: npm test
  */
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   changeEvents, corporateActions, ingestionBatches, priceBars, quoteObservations,
@@ -23,6 +23,7 @@ import { detectEvents, isMissedEvent } from "@/lib/change-engine";
 import { evaluateThesis, resolveState } from "@/lib/thesis-engine";
 import { applyCorporateActions } from "@/lib/thesis";
 import { advanceDigestWatermark, advanceWatermark } from "@/lib/digest";
+import { answerFromContext, getAskContext, type AskContext } from "@/lib/ask-thesis";
 import type { Bar, Quote } from "@/lib/market/types";
 
 let passed = 0;
@@ -56,6 +57,44 @@ async function reset() {
 }
 
 await reset();
+
+/* ------------------------------------------------------------------------- */
+section("Ask THESIS — bounded explanation layer");
+{
+  const context = {
+    mode: "LIVE",
+    currentSymbol: "INFY.NS",
+    watchlist: [{ symbol: "INFY.NS", name: "Infosys", price: 1100, previousClose: 1080, asOf: new Date("2026-09-04T06:00:00Z"), marketState: "REGULAR", addedAt: new Date(), thesisState: "WATCHING", health: "healthy" }],
+    theses: [{ symbol: "INFY.NS", type: "price_range", state: "WATCHING", note: "Watch the range", params: { low: 1000, high: 1100 } }],
+    digest: { awayFrom: null, cutoff: new Date(), sessionsInWindow: 1, marketClosedThroughout: false, contradictions: [], triggers: [{ symbol: "INFY.NS" }], missed: [], anomalies: [], unchanged: [] },
+    recentEvents: [{ symbol: "INFY.NS", signalType: "large_move", occurredAt: new Date("2026-09-04T06:00:00Z"), resolvedAt: null, evidence: [{ label: "Move", value: "2.3σ", basis: "vs 20-day realized volatility" }] }],
+    lastCompletedBatchAt: new Date("2026-09-04T06:05:00Z"),
+  } as unknown as AskContext;
+  const thesisReply = answerFromContext("What is my thesis for INFY?", context);
+  check("symbol context selects only the current watched symbol", thesisReply.answer.includes("INFY.NS") && thesisReply.answer.includes("₹1,000.00 to ₹1,100.00"));
+  check("thesis context explains recorded state rather than deciding it", thesisReply.answer.includes("deterministic state is watching"));
+  check("digest context reports committed digest output", answerFromContext("What changed while I was away?", context).answer.includes("condition triggered"));
+  check("event context repeats stored evidence", answerFromContext("Why is this event significant?", context).answer.includes("2.3σ"));
+  check("advisory questions are declined", answerFromContext("Should I buy INFY?", context).answer.includes("can’t recommend"));
+  check("missing non-watched symbol has no user-scoped context", answerFromContext("What is my thesis for TCS.NS?", context).answer.includes("not on your watchlist"));
+  const demoReply = answerFromContext("Is this live data or demo replay?", { ...context, mode: "DEMO REPLAY" });
+  check("demo replay is labelled explicitly", demoReply.answer.includes("DEMO REPLAY"));
+  // There is no required AI provider: the deterministic answer builder stays
+  // available when an optional presentation provider is absent or unavailable.
+  check("optional AI absence leaves the explanation layer available", answerFromContext("What does sigma mean?", context).answer.includes("sigma"));
+
+  const suffix = Date.now();
+  const otherSymbol = `ASK-OTHER-${suffix}.NS`;
+  const [firstUser] = await db.insert(users).values({ email: `ask-first-${suffix}@example.com`, passwordHash: "test" }).returning();
+  const [secondUser] = await db.insert(users).values({ email: `ask-second-${suffix}@example.com`, passwordHash: "test" }).returning();
+  await db.insert(symbols).values({ symbol: otherSymbol, name: "Other user only" });
+  await db.insert(watchlistItems).values([{ userId: firstUser.id, symbol: SYM }, { userId: secondUser.id, symbol: otherSymbol }]);
+  const scoped = await getAskContext(firstUser.id);
+  check("database context is scoped to the authenticated user", scoped.watchlist.length === 1 && scoped.watchlist[0]?.symbol === SYM);
+  check("database context never leaks another user’s watched symbol", !scoped.watchlist.some((row) => row.symbol === otherSymbol) && !scoped.theses.some((thesis) => thesis.symbol === otherSymbol));
+  await db.delete(users).where(inArray(users.id, [firstUser.id, secondUser.id]));
+  await db.delete(symbols).where(eq(symbols.symbol, otherSymbol));
+}
 
 /* ------------------------------------------------------------------------- */
 section("1. a failed or incomplete poll preserves last-known-good");
