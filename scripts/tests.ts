@@ -12,7 +12,7 @@ import { eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   changeEvents, corporateActions, ingestionBatches, priceBars, quoteObservations,
-  quotes, symbols, symbolStats, watchlistItems,
+  quotes, symbols, symbolStats, theses, userSymbolReadState, users, watchlistItems,
 } from "@/db/schema";
 import { ingestQuotes, ingestHistory, refreshSymbolStats } from "@/lib/ingestion";
 import { recordPollOutcome } from "@/lib/feed-health";
@@ -21,6 +21,7 @@ import { ReplayMarketDataProvider } from "@/lib/market/replay";
 import { detectCorporateAction, isCandidate } from "@/lib/corporate-actions";
 import { detectEvents, isMissedEvent } from "@/lib/change-engine";
 import { evaluateThesis, resolveState } from "@/lib/thesis-engine";
+import { applyCorporateActions } from "@/lib/thesis";
 import type { Bar, Quote } from "@/lib/market/types";
 
 let passed = 0;
@@ -446,6 +447,66 @@ section("thesis engine — creation floor, observation window, 2-of-3");
     resolveState("price_range", firedAfter, null) === "TRIGGERED");
   check("a `none` thesis produces no verdicts at all",
     evaluateThesis({ ...base, type: "none", params: {}, createdAt: new Date("2026-07-01T00:00:00Z") }).length === 0);
+}
+
+/* ------------------------------------------------------------------------- */
+section("corporate actions adjust what the USER typed");
+{
+  await reset();
+  const [u] = await db.insert(users)
+    .values({ email: `ca+${Date.now()}@example.com`, passwordHash: "x" }).returning();
+  const [item] = await db.insert(watchlistItems)
+    .values({ userId: u.id, symbol: SYM }).returning();
+  const [batch] = await db.insert(ingestionBatches)
+    .values({ status: "COMPLETED", requestedCount: 1 }).returning();
+
+  // A user watching for "below ₹2,800", written before a 1:5 split.
+  await db.insert(theses).values({
+    watchlistItemId: item.id, type: "price_range",
+    paramsJson: { low: 2700, high: 2800 }, note: "interested below 2800",
+    createdAt: new Date("2026-07-01T00:00:00Z"), state: "WATCHING",
+  });
+  await db.insert(userSymbolReadState).values({
+    userId: u.id, symbol: SYM, lastSeenAt: new Date("2026-07-01T00:00:00Z"),
+    lastSeenPriceAdj: "2750.0000",
+  });
+  await db.insert(corporateActions).values({
+    fingerprint: `test-split-${Date.now()}`, symbol: SYM, candidateType: "split",
+    factor: "0.2", affectedFrom: "2026-07-10", affectedTo: "2026-08-01",
+    supportingBars: 20, status: "VALIDATED", reason: "test", batchId: batch.id,
+    detectedAt: new Date(),
+  });
+
+  const result = await applyCorporateActions();
+  check("the pending action is applied", result.applied === 1 && result.thesesAdjusted === 1,
+    JSON.stringify(result));
+
+  const [t] = await db.select().from(theses).where(eq(theses.watchlistItemId, item.id));
+  const params = t.paramsJson as Record<string, unknown>;
+  check("thesis parameters are scaled by the split factor",
+    params.low === 540 && params.high === 560, `low=${params.low} high=${params.high}`);
+  check("paramsAdjustedAt is set, so the change is surfaced not silent", t.paramsAdjustedAt != null);
+
+  // The whole point: the user's numbers are never silently rewritten.
+  const adjustments = params.adjustments as { before: Record<string, number>; after: Record<string, number>; factor: number }[];
+  check("the prior values are retained for display",
+    adjustments?.length === 1 && adjustments[0].before.low === 2700 && adjustments[0].before.high === 2800,
+    JSON.stringify(adjustments?.[0]?.before));
+  check("the new values are recorded alongside them",
+    adjustments[0].after.low === 540 && adjustments[0].after.high === 560);
+
+  const [rs] = await db.select().from(userSymbolReadState).where(eq(userSymbolReadState.userId, u.id));
+  check("the watermark price is adjusted by the same factor",
+    Number(rs.lastSeenPriceAdj) === 550, String(rs.lastSeenPriceAdj));
+
+  // Idempotent: a second run must not compound the adjustment.
+  await applyCorporateActions();
+  const [again] = await db.select().from(theses).where(eq(theses.watchlistItemId, item.id));
+  const p2 = again.paramsJson as Record<string, unknown>;
+  check("re-running does not compound the adjustment", p2.low === 540 && p2.high === 560,
+    `low=${p2.low}`);
+
+  await db.delete(users).where(eq(users.id, u.id));
 }
 
 await reset();

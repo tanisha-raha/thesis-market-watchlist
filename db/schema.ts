@@ -7,10 +7,10 @@ import {
  *
  * Every instant is `timestamp with time zone`, stored and compared in UTC.
  * IST exists only at the rendering boundary (lib/time.ts). No column ever holds
- * a naive local time. Trading *dates* are the one exception: they are calendar
- * dates in IST, stored as `text` in YYYY-MM-DD form, because "the 2026-09-04
- * session" is a market-calendar fact, not an instant, and converting it to a
- * timestamp invites an off-by-one across the UTC/IST boundary.
+ * a naive local time. Trading *dates* are the one exception: they are NSE-local
+ * calendar dates, stored as PostgreSQL `DATE`, because "the 2026-09-04 session"
+ * is a market-calendar fact, not an instant. Converting it to a timestamp invites
+ * an off-by-one across the UTC/IST boundary.
  */
 
 export const users = pgTable("users", {
@@ -203,6 +203,8 @@ export const corporateActions = pgTable("corporate_actions", {
   reason: text("reason").notNull(),
   batchId: integer("batch_id").notNull().references(() => ingestionBatches.id),
   detectedAt: timestamp("detected_at", { withTimezone: true }).notNull(),
+  /** When user-level numbers were adjusted for this action. Null until applied. */
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
 }, (t) => [uniqueIndex("corporate_actions_fingerprint_idx").on(t.fingerprint)]);
 
 /**

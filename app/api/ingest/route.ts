@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { watchlistItems } from "@/db/schema";
 import { ingestQuotes, refreshSymbolStats, detectCorporateActions } from "@/lib/ingestion";
 import { runDetection } from "@/lib/detection";
+import { applyCorporateActions, runThesisEvaluation } from "@/lib/thesis";
 import { liveProvider } from "@/lib/market/live";
 import { FULL_UNIVERSE } from "@/lib/universe";
 
@@ -81,12 +82,20 @@ export async function GET(request: Request) {
     };
 
     // Detection depends on symbol_stats, so on a stats run it happens after them.
-    if (!withStats) body.detection = await runDetection(targets);
+    if (!withStats) {
+      body.detection = await runDetection(targets);
+      body.theses = await runThesisEvaluation();
+    }
 
     if (withStats) {
       body.stats = await refreshSymbolStats(targets);
       body.corporateActions = await detectCorporateActions(targets);
+      // Adjustment must follow detection: a validated split has to reach the
+      // user's thesis parameters and watermark price, or detecting it was
+      // pointless and the stale number fires wrongly.
+      body.adjustments = await applyCorporateActions();
       body.detection = await runDetection(targets);
+      body.theses = await runThesisEvaluation();
     }
 
     return NextResponse.json(body);

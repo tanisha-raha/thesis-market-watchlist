@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { quotes, symbols, watchlistItems } from "@/db/schema";
+import { quotes, symbols, theses, watchlistItems } from "@/db/schema";
 import { liveProvider } from "@/lib/market/live";
 import { classify, type FeedHealth } from "@/lib/feed-health";
 import { isUniqueViolation } from "@/lib/db-errors";
@@ -19,6 +19,7 @@ export type WatchlistRow = {
   /** Exchange timestamp for the price shown. Null when we have never had a quote. */
   asOf: Date | null;
   marketState: string | null;
+  thesisState: string | null;
   health: FeedHealth;
 };
 
@@ -47,10 +48,12 @@ export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
       previousClose: quotes.previousClose,
       asOf: quotes.asOf,
       marketState: quotes.marketState,
+      thesisState: theses.state,
     })
     .from(watchlistItems)
     .innerJoin(symbols, eq(symbols.symbol, watchlistItems.symbol))
     .leftJoin(quotes, eq(quotes.symbol, watchlistItems.symbol))
+    .leftJoin(theses, eq(theses.watchlistItemId, watchlistItems.id))
     .where(eq(watchlistItems.userId, userId))
     .orderBy(watchlistItems.createdAt);
 
@@ -67,12 +70,13 @@ export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
         price != null && prev != null && prev !== 0 ? ((price - prev) / prev) * 100 : null,
       asOf: row.asOf ?? null,
       marketState: row.marketState ?? null,
+      thesisState: row.thesisState ?? null,
       health: classify(row.misses),
     };
   });
 }
 
-export type AddResult = { ok: true } | { ok: false; error: string };
+export type AddResult = { ok: true; watchlistItemId: number } | { ok: false; error: string };
 
 /**
  * Adds a symbol to a user's watchlist.
@@ -131,13 +135,21 @@ export async function addSymbol(userId: number, rawSymbol: string): Promise<AddR
     });
 
   try {
-    await db.insert(watchlistItems).values({ userId, symbol: resolved.symbol });
+    const [row] = await db.insert(watchlistItems)
+      .values({ userId, symbol: resolved.symbol })
+      .returning({ id: watchlistItems.id });
+    return { ok: true, watchlistItemId: row.id };
   } catch (err) {
-    // Unique constraint — already on the list. Idempotent, so not an error.
-    if (isUniqueViolation(err)) return { ok: true };
+    // Unique constraint — already on the list. Idempotent, so not an error:
+    // return the existing item so a thesis can still be attached to it.
+    if (isUniqueViolation(err)) {
+      const [existing] = await db.select({ id: watchlistItems.id }).from(watchlistItems)
+        .where(and(eq(watchlistItems.userId, userId), eq(watchlistItems.symbol, resolved.symbol)))
+        .limit(1);
+      return { ok: true, watchlistItemId: existing.id };
+    }
     throw err;
   }
-  return { ok: true };
 }
 
 export async function removeSymbol(userId: number, symbol: string): Promise<void> {

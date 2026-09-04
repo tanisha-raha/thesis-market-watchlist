@@ -43,6 +43,13 @@
       "when": 1788522618860,
       "tag": "0005_theses",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788524345229,
+      "tag": "0006_corporate_action_applied",
+      "breakpoints": true
     }
   ]
 }
