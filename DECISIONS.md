@@ -137,3 +137,210 @@ successful application requests and no 429, timeout, or thrown-error record. The
 upstream Yahoo request durations or payloads, so individual provider latency was not measurable
 from the available logs. The successful flow completed within the E2E's 40-second persisted-row
 timeout; no claim beyond that bound is made.
+
+---
+
+## 2026-09-04 — Phase 2 preserves first-observed Yahoo history explicitly
+
+`price_bars` stores immutable first-observed provider values separately from the refreshable current
+provider projection. These are not vendor "raw" prices: Phase 0 proved Yahoo restates its history.
+Every batch is first persisted as STARTED; only successful database commits mark it COMPLETED.
+Per-symbol omissions are reconciled feed outcomes, not batch failures.
+
+---
+
+## 2026-09-04 — The cut list, decided in advance
+
+**Decision.** Written at Fri 16:45 IST, while rested, so that it is already made when
+we are tired and attached to everything. Cut in this order, without renegotiating:
+
+1. **Sector-relative residuals.** Already a stretch goal — NIFTY-relative is the
+   primary benchmark and `^CNXFIN` has no usable history anyway.
+2. **Supersession logic** (`supersedes_id`, parent/child event absorption). The
+   cooldown and hysteresis rules already suppress most repeat noise; supersession
+   is the refinement on top, not the mechanism.
+3. **Thesis types down to `price_range`, `momentum_up`, `none`.** These three cover
+   a trigger thesis, a maintenance thesis, and the generic-anomaly fallback — the
+   full shape of the engine is still demonstrable. `breakout`, `momentum_down`,
+   `volatility_watch` and `volume_expansion` are more instances of a pattern that
+   is already proven by the first three.
+4. **Missed-event replay UI** (the timeline view). **Keep the data** — keep
+   `resolved_at`, keep detection, keep the events queryable. Only the rendered
+   timeline goes, and the digest can still state that a missed event occurred.
+
+**Never cut, at any hour:**
+
+- **Corporate-action thesis adjustment.** Detection without adjustment is worse
+  than neither: we would know the user's ₹2,800 became ₹560 and let it fire wrongly
+  anyway.
+- **The evidence panel.** It is the difference between a judgement product and a
+  number generator, and it is where two of five rubric dimensions are won.
+- **The five tests.**
+- **README.md.** A submission requirement.
+
+**Why write this now.** Capacity is realistically 30–34h across two nights, not the
+37h the plan assumes, and the estimates are the optimistic case. A cut list decided
+under time pressure gets negotiated against sunk cost; one decided in advance gets
+executed. Cutting a feature to keep the architecture clean is the correct trade, not
+a compromise.
+
+**Hard constraint.** Phase 4 (the thesis engine) starts by **Saturday 14:00 IST**,
+without exception. If Phase 3 is unfinished at that hour, we cut into Phase 3 using
+the list above rather than delaying Phase 4. A shipped thesis engine on a thinner
+change engine beats a perfect change engine with no thesis engine: interpretation
+and originality are what we are differentiating on, and they live in Phase 4.
+
+---
+
+## 2026-09-04 — Intraday history: seed 5m bars now, poll continuously, keep both in one series
+
+**Decision.** Three things, in priority order. Seed 5-minute bars for the universe
+from a locally-fetched, committed file. Start continuous quote polling immediately.
+Keep the deterministic replay fixture mandatory regardless of both.
+
+Both intraday sources land in `quote_observations` with a `source` column
+(`poll` | `bar_5m`), rather than in a separate table.
+
+**Why seed 5m bars.** Polling alone accumulates only from the moment it starts: at
+submission on Monday a judge opening the app would find an empty replay. Yahoo
+serves 5m bars for ~60 days, so seeding gives the missed-event feature a populated
+history on day one. The window also slides — history not captured today is gone
+permanently — which is why this ran first, before any bug fixes.
+
+**Why fetch locally and commit.** The deployed app must never cold-backfill. Yahoo
+throttles datacenter IPs harder than residential ones, and free-tier host IP pools
+are heavily used. `ingestHistory` already refuses to run when `process.env.VERCEL`
+is set.
+
+**Why one series rather than a separate intraday table.** The missed-event detector
+then has exactly one code path over one time-ordered series, whichever source a
+point came from. Code paths are what cost us hours at this stage. The honest
+trade-off is that a 5m bar close is an aggregate while a poll is a point sample; the
+`source` column records which, so nothing is silently conflated.
+
+**Why the loader stores only the close, while the seed file keeps full OHLCV.** A
+threshold crossing that reverses inside a single 5-minute bar is below our detection
+resolution, and claiming otherwise would overstate what we can see. But the fetch is
+irreversible and the load is not, so the committed file retains open/high/low/volume
+in case we later want intra-bar crossings. Capture everything once; decide what to
+use as often as we like.
+
+---
+
+## 2026-09-04 — Never edit an applied migration
+
+**Decision.** Migrations are append-only. A mistake in an applied migration is
+corrected by a new one, written to be idempotent. `0001` is left exactly as it is.
+
+**Why.** `corporate_actions` was added to `0001_phase2_ingestion.sql` *after* that
+migration had already run. Drizzle records migrations by hash and never re-runs one
+it has seen, so `npm run db:migrate` reported "migrations applied" and did nothing.
+The result was a database that had four of the five Phase 2 tables, a journal that
+claimed all five, and no error anywhere. A fresh database would have been correct;
+an already-migrated one silently was not — and production could have been on either
+side of that split.
+
+`0002_phase2b_levels_source.sql` is therefore idempotent by construction:
+`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, and foreign keys guarded on
+`(table, column)` rather than on constraint name, because `0001` created the same
+relationships under different names and matching on name alone would have added a
+second, duplicate foreign key. Verified against both states: an already-migrated
+database and a freshly created one both converge on the same 10 tables and 13
+foreign keys.
+
+**Also fixed.** `0001` was hand-written with no snapshot in `meta/`, so the next
+`drizzle-kit generate` would have diffed against `0000` and emitted a migration
+re-creating every Phase 2 table. `0002` was generated by drizzle (then edited for
+idempotency), which restored a correct `0002_snapshot.json`.
+
+---
+
+## 2026-09-04 — Any helper that writes inside a transaction takes the transaction
+
+**Decision.** `recordPollOutcome` takes an explicit `DbExecutor` — either the pooled
+client or an open transaction handle — and uses it. The type is exported from
+`db/index.ts` so the rule generalises.
+
+**Why.** `ingestQuotes` opened a transaction and called `recordPollOutcome` from
+inside it, but that function closed over the module-level `db`. Drizzle binds `tx`
+to a reserved connection, so those writes went out on a *different* connection:
+outside the transaction, and surviving its rollback. The transaction looked correct
+and was not, which is more dangerous than having no transaction at all.
+
+Confirmed empirically before fixing: forcing a rollback left `ingestion_batches`
+correctly empty while `consecutive_feed_misses` advanced 0 → 1 and stayed. The
+practical consequence is that a failed batch could push a symbol toward a false
+"we have stopped monitoring this" — a false alarm on the exact promise the product
+makes.
+
+**Note on the original concern.** The worry was that network I/O sat inside the
+transaction. It did not: both `provider.getQuotes` and `provider.getDailyBars` were
+already awaited before `db.transaction` opened. That part was already right.
+
+---
+
+## 2026-09-04 — Scheduled ingestion is the only writer of quotes
+
+**Decision.** `/api/ingest`, protected by `CRON_SECRET` and triggered by an external
+cron, is the only path that fetches quotes. Page loads render what it committed.
+`addSymbol` persists the quote it already fetched to validate the symbol, so a
+newly added row shows a price immediately rather than waiting for the next poll.
+
+**Why.** Page loads previously fetched quotes inline, which makes upstream request
+volume a function of user traffic rather than of a fixed schedule — the pattern most
+likely to trip the datacenter-IP throttling the brief warns about, and which our
+residential-IP testing provably could not measure. It also put an unpredictable
+remote call on the critical path of every render.
+
+This is also what "serve last-known-good with a visible as-of timestamp" means in
+practice: every row carries the exchange timestamp of the price shown and the UI
+states its age. The route refuses every request when `CRON_SECRET` is unset rather
+than failing open, because an unprotected ingestion route is an open proxy to our
+provider and the fastest way to get rate-limited.
+
+---
+
+## 2026-09-04 — Five integration tests, and what they are for
+
+**Decision.** Five tests, each protecting a promise rather than a line of code:
+last-known-good survives a failed or incomplete poll; first-observed history is
+immutable under provider restatement; historical ingestion is idempotent; stats
+never emit NaN or Infinity; a rollback removes every partial write.
+
+**Why five.** The thesis engine — the actual differentiator — has no code yet. A
+large database-backed suite over ingestion would be effort spent on the part of the
+system we are least worried about. Everything else is verified manually and recorded
+here.
+
+**The rollback test was written to fail.** Reverting `recordPollOutcome` to its
+previous form reproduces `misses 0 -> 1` and the test fails; with the fix in place it
+passes. A test that would have passed against the bug it claims to cover is not
+evidence of anything.
+
+**To add later, not now:** watermark monotonicity and digest-cutoff sequencing. It
+protects the subtlest rule in the brief, but the code does not exist until Phase 4/5.
+
+---
+
+## 2026-09-04 — Statistics are computed on adjusted closes, over traded sessions only
+
+**Decision.** Every level and every return in `symbol_stats` uses the adjusted close
+and only sessions where the market actually traded. 52-week and 20-day high/low are
+added, both from adjusted closes rather than intraday highs and lows.
+
+**Why traded sessions only.** Yahoo emits phantom bars on NSE holidays: equities get
+a real carried-forward close with `volume: 0`, indices get a null close. Including
+them injects a spurious 0% return that deflates realized volatility — the denominator
+every other signal is normalized by. Observable in the result: `sessions_used` is 496
+against 501 stored bars, the difference being exactly the five holiday dates Phase 0
+identified.
+
+**Why 52-week levels at all.** The brief specifies `52w_high`/`52w_low` in
+`symbol_stats`, the change engine's level-crossing signal is explicitly 52-week *and*
+20-day, and hysteresis re-arming needs a stored level to compare against. Neither was
+present. The cost is two reductions over bars already fetched.
+
+**Why closes rather than intraday highs.** We have no adjusted high or low from the
+provider. Mixing an unadjusted intraday high with an adjusted close would be
+incoherent across a split — the precise failure the corporate-actions work exists to
+prevent. A close-based 52-week high is slightly conservative and always consistent.

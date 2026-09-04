@@ -46,4 +46,5 @@ export interface MarketDataProvider {
   readonly name: "live" | "replay";
   getQuotes(symbols: string[]): Promise<QuoteBatch>;
   search(query: string): Promise<SearchResult[]>;
+  getDailyBars(symbol: string, sinceDays: number): Promise<Bar[]>;
 }

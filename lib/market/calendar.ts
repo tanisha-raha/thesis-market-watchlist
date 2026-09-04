@@ -67,14 +67,28 @@ export function sessionsBetween(calendar: Set<string>, after: string, until: str
  * naive join silently produces NaN. This is not hypothetical — it is the bug
  * that appeared the first time we computed a bank beta in Phase 0.
  */
-export function alignSeries(a: Bar[], b: Bar[]): { date: string; a: number; b: number }[] {
-  const bByDate = new Map(b.filter((x) => x.close != null).map((x) => [x.date, x.close!]));
+export function alignSeries(
+  a: Bar[],
+  b: Bar[],
+  /** Which price to align on. Defaults to the close; stats align on the adjusted close. */
+  value: (bar: Bar) => number | null = (bar) => bar.close,
+): { date: string; a: number; b: number }[] {
+  const usable = (bar: Bar) => {
+    const v = value(bar);
+    return v != null && Number.isFinite(v) ? v : null;
+  };
+  const bByDate = new Map<string, number>();
+  for (const bar of b) {
+    const v = usable(bar);
+    if (v != null) bByDate.set(bar.date, v);
+  }
   const out: { date: string; a: number; b: number }[] = [];
   for (const bar of a) {
-    if (bar.close == null) continue;
+    const v = usable(bar);
+    if (v == null) continue;
     const other = bByDate.get(bar.date);
     if (other == null) continue;
-    out.push({ date: bar.date, a: bar.close, b: other });
+    out.push({ date: bar.date, a: v, b: other });
   }
   return out;
 }

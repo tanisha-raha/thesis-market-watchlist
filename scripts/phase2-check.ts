@@ -1,0 +1,10 @@
+import { computeStats } from "@/lib/stats";
+import { detectCorporateAction } from "@/lib/corporate-actions";
+import { ReplayMarketDataProvider } from "@/lib/market/replay";
+const bars = Array.from({length: 61}, (_, i) => ({ date: `2026-01-${String(i+1).padStart(2,"0")}`, open: 100+i, high: 101+i, low: 99+i, close: 100+i, adjClose: 100+i, volume: i === 1 ? 0 : 1000+i }));
+const stats = computeStats(bars, bars);
+const split = detectCorporateAction("TEST.NS", [{date:"2026-01-01",first:200,current:100},{date:"2026-01-02",first:220,current:110},{date:"2026-01-03",first:240,current:120}]);
+const single = detectCorporateAction("TEST.NS", [{date:"2026-01-01",first:200,current:100},{date:"2026-01-02",first:220,current:220},{date:"2026-01-03",first:240,current:240}]);
+const replay = new ReplayMarketDataProvider({ bars: { "TEST.NS": bars } });
+const checks = [stats.medianVolume20 !== 0, Object.values(stats).every((v) => v == null || Number.isFinite(v)), split.status === "VALIDATED", single.status === "REJECTED", (await replay.getDailyBars("TEST.NS", 2)).length === 2];
+console.log(`${checks.filter(Boolean).length}/${checks.length} Phase 2 checks passed`); process.exit(checks.every(Boolean) ? 0 : 1);

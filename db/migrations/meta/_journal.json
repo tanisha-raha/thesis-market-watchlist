@@ -8,6 +8,20 @@
       "when": 1788503575706,
       "tag": "0000_condemned_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788519000000,
+      "tag": "0001_phase2_ingestion",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788520227196,
+      "tag": "0002_phase2b_levels_source",
+      "breakpoints": true
     }
   ]
 }

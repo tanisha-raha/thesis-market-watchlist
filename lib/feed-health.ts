@@ -17,7 +17,7 @@
  * So: count quietly, escalate only on repetition.
  */
 import { eq, inArray, sql } from "drizzle-orm";
-import { db } from "@/db";
+import { db, type DbExecutor } from "@/db";
 import { symbols } from "@/db/schema";
 
 /**
@@ -48,16 +48,25 @@ export function isUserVisible(health: FeedHealth): boolean {
  * feed failure must NOT reach here — that would mark every symbol in the batch as
  * missing and escalate the entire watchlist to "unresolved" on one bad request.
  * `LiveMarketDataProvider.getQuotes` throws on batch failure for that reason.
+ *
+ * Takes an explicit executor. When called inside an ingestion transaction it must
+ * receive that transaction, or these writes commit independently and a rolled-back
+ * batch still advances the miss counters — pushing a symbol toward a false
+ * "we stopped monitoring this", which is the most alarming thing we can tell a user.
  */
-export async function recordPollOutcome(seen: string[], missing: string[]): Promise<void> {
+export async function recordPollOutcome(
+  executor: DbExecutor,
+  seen: string[],
+  missing: string[],
+): Promise<void> {
   const now = new Date();
   if (seen.length > 0) {
-    await db.update(symbols)
+    await executor.update(symbols)
       .set({ lastSeenInFeedAt: now, consecutiveFeedMisses: 0 })
       .where(inArray(symbols.symbol, seen));
   }
   if (missing.length > 0) {
-    await db.update(symbols)
+    await executor.update(symbols)
       .set({ consecutiveFeedMisses: sql`${symbols.consecutiveFeedMisses} + 1` })
       .where(inArray(symbols.symbol, missing));
   }

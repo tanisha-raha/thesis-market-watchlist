@@ -1,9 +1,9 @@
 import "server-only";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { quotes, symbols, watchlistItems } from "@/db/schema";
 import { liveProvider } from "@/lib/market/live";
-import { classify, recordPollOutcome, type FeedHealth } from "@/lib/feed-health";
+import { classify, type FeedHealth } from "@/lib/feed-health";
 import { isUniqueViolation } from "@/lib/db-errors";
 
 /** `excluded.<col>` in an ON CONFLICT DO UPDATE — the row Postgres tried to insert. */
@@ -20,94 +20,54 @@ export type WatchlistRow = {
   asOf: Date | null;
   marketState: string | null;
   health: FeedHealth;
-  /** True when the price came from storage because the live feed did not answer. */
-  servedFromCache: boolean;
 };
 
 /**
- * Refreshes quotes for a set of symbols, returning what we know either way.
+ * Reads the watchlist from stored state. Deliberately does NOT call the feed.
  *
- * Two resilience rules from the brief are load-bearing here:
- *   1. Never render stale data as live — every row carries its own `asOf` and a
- *      `servedFromCache` flag, and the UI shows both.
- *   2. A feed outage degrades the page, it does not break it. On a failed fetch
- *      we fall back to last-known-good rather than showing an error screen.
+ * Page loads used to fetch quotes inline. That is the wrong shape for the
+ * deployed app: it makes request volume a function of user traffic rather than
+ * of a fixed schedule, which is exactly the pattern most likely to trip the
+ * datacenter-IP throttling the brief warns about — and which our residential-IP
+ * testing could not measure. The scheduled ingestion route is now the only
+ * writer of quotes; this path renders what it committed.
+ *
+ * That is also what "serve last-known-good with a visible as-of timestamp"
+ * means in practice. Every row carries the exchange timestamp of the price
+ * shown, and the UI states its age rather than implying it is live.
  */
-async function refreshQuotes(syms: string[]): Promise<{ failed: boolean }> {
-  if (syms.length === 0) return { failed: false };
-
-  try {
-    const { quotes: fresh, missing } = await liveProvider.getQuotes(syms);
-
-    if (fresh.length > 0) {
-      await db.insert(quotes)
-        .values(fresh.map((q) => ({
-          symbol: q.symbol,
-          price: String(q.price),
-          previousClose: q.previousClose == null ? null : String(q.previousClose),
-          asOf: q.asOf,
-          marketState: q.marketState,
-          fetchedAt: new Date(),
-        })))
-        .onConflictDoUpdate({
-          target: quotes.symbol,
-          set: {
-            price: sqlExcluded("price"),
-            previousClose: sqlExcluded("previous_close"),
-            asOf: sqlExcluded("as_of"),
-            marketState: sqlExcluded("market_state"),
-            fetchedAt: sqlExcluded("fetched_at"),
-          },
-        });
-    }
-
-    await recordPollOutcome(fresh.map((q) => q.symbol), missing);
-    return { failed: false };
-  } catch {
-    // Feed outage. Deliberately not rethrown and deliberately not counted as a
-    // per-symbol miss — see the note in lib/feed-health.ts.
-    return { failed: true };
-  }
-}
-
 export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
-  const items = await db
+  const rows = await db
     .select({
       symbol: watchlistItems.symbol,
       addedAt: watchlistItems.createdAt,
       name: symbols.name,
       misses: symbols.consecutiveFeedMisses,
+      price: quotes.price,
+      previousClose: quotes.previousClose,
+      asOf: quotes.asOf,
+      marketState: quotes.marketState,
     })
     .from(watchlistItems)
     .innerJoin(symbols, eq(symbols.symbol, watchlistItems.symbol))
+    .leftJoin(quotes, eq(quotes.symbol, watchlistItems.symbol))
     .where(eq(watchlistItems.userId, userId))
     .orderBy(watchlistItems.createdAt);
 
-  if (items.length === 0) return [];
-
-  const { failed } = await refreshQuotes(items.map((i) => i.symbol));
-
-  const stored = await db
-    .select()
-    .from(quotes)
-    .where(inArray(quotes.symbol, items.map((i) => i.symbol)));
-  const bySymbol = new Map(stored.map((q) => [q.symbol, q]));
-
-  return items.map((item) => {
-    const q = bySymbol.get(item.symbol);
-    const price = q ? Number(q.price) : null;
-    const prev = q?.previousClose == null ? null : Number(q.previousClose);
+  return rows.map((row) => {
+    const price = row.price == null ? null : Number(row.price);
+    const prev = row.previousClose == null ? null : Number(row.previousClose);
     return {
-      symbol: item.symbol,
-      name: item.name,
-      addedAt: item.addedAt,
+      symbol: row.symbol,
+      name: row.name,
+      addedAt: row.addedAt,
       price,
       previousClose: prev,
-      changePercent: price != null && prev != null && prev !== 0 ? (price - prev) / prev * 100 : null,
-      asOf: q?.asOf ?? null,
-      marketState: q?.marketState ?? null,
-      health: classify(item.misses),
-      servedFromCache: failed,
+      changePercent:
+        price != null && prev != null && prev !== 0 ? ((price - prev) / prev) * 100 : null,
+      asOf: row.asOf ?? null,
+      marketState: row.marketState ?? null,
+      health: classify(row.misses),
     };
   });
 }
@@ -145,6 +105,29 @@ export async function addSymbol(userId: number, rawSymbol: string): Promise<AddR
     .onConflictDoUpdate({
       target: symbols.symbol,
       set: { name: sqlExcluded("name"), lastSeenInFeedAt: sqlExcluded("last_seen_in_feed_at"), consecutiveFeedMisses: sql`0` },
+    });
+
+  // The validation fetch already produced a usable quote. Persisting it here is
+  // what lets a just-added symbol render a price before the next scheduled poll.
+  await db
+    .insert(quotes)
+    .values({
+      symbol: resolved.symbol,
+      price: String(resolved.price),
+      previousClose: resolved.previousClose == null ? null : String(resolved.previousClose),
+      asOf: resolved.asOf,
+      marketState: resolved.marketState,
+      fetchedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: quotes.symbol,
+      set: {
+        price: sqlExcluded("price"),
+        previousClose: sqlExcluded("previous_close"),
+        asOf: sqlExcluded("as_of"),
+        marketState: sqlExcluded("market_state"),
+        fetchedAt: sqlExcluded("fetched_at"),
+      },
     });
 
   try {

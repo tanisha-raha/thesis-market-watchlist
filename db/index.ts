@@ -19,3 +19,14 @@ const client = postgres(url, {
 
 export const db = drizzle(client, { schema });
 export { schema };
+
+/**
+ * Either the pooled client or an open transaction handle.
+ *
+ * Any function that writes and might be called from inside `db.transaction()`
+ * MUST take one of these and use it, rather than closing over `db`. Drizzle
+ * binds `tx` to a reserved connection, so a helper that reaches for the
+ * module-level `db` silently issues its writes on a DIFFERENT connection —
+ * outside the transaction, and surviving its rollback.
+ */
+export type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];

@@ -20,7 +20,6 @@ function Freshness({ row }: { row: WatchlistRow }) {
   const closed = row.marketState && row.marketState !== "REGULAR";
   return (
     <span className="text-[--color-muted]" title={`Exchange time: ${formatIST(row.asOf)} IST`}>
-      {row.servedFromCache && <span className="text-[--color-down]">last known good · </span>}
       {formatAge(row.asOf)}
       {closed ? " · market closed" : ""}
     </span>

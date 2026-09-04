@@ -12,7 +12,12 @@
     "db:studio": "drizzle-kit studio",
     "validate:source": "tsx scripts/validate-source.ts",
     "smoke": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/smoke.ts",
-    "browser-check": "tsx scripts/browser-check.ts"
+    "browser-check": "tsx scripts/browser-check.ts",
+    "phase2-check": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/phase2-check.ts",
+    "seed:intraday": "tsx scripts/seed-intraday.ts",
+    "seed:load": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/seed-load.ts",
+    "seed:daily": "tsx scripts/seed-daily.ts",
+    "test": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/tests.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

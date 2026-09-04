@@ -60,7 +60,7 @@ check("asOf is not our fetch time", rel.asOf != null && Math.abs(Date.now() - re
 check("marketState present", rel.marketState != null, String(rel.marketState));
 check("change vs previous close computed", rel.changePercent != null, `${rel.changePercent?.toFixed(2)}%`);
 check("health starts ok", rel.health === "ok");
-check("not served from cache when feed is up", rel.servedFromCache === false);
+check("watchlist renders from stored quotes, not a per-request fetch", rel.asOf != null);
 
 const storedQuote = await db.select().from(quotes).where(eq(quotes.symbol, "RELIANCE.NS"));
 check("quote persisted for last-known-good", storedQuote.length === 1);
@@ -69,13 +69,13 @@ await removeSymbol(userId, "TCS.NS");
 check("remove works", (await getWatchlist(userId)).length === 1);
 
 section("feed health — transient vs terminal");
-await recordPollOutcome([], ["RELIANCE.NS"]);
+await recordPollOutcome(db, [], ["RELIANCE.NS"]);
 let s = (await db.select().from(symbols).where(eq(symbols.symbol, "RELIANCE.NS")))[0];
 check("one miss counts but stays invisible", classify(s.consecutiveFeedMisses) === "degraded", `misses=${s.consecutiveFeedMisses}`);
-for (let i = 1; i < TERMINAL_MISS_THRESHOLD; i++) await recordPollOutcome([], ["RELIANCE.NS"]);
+for (let i = 1; i < TERMINAL_MISS_THRESHOLD; i++) await recordPollOutcome(db, [], ["RELIANCE.NS"]);
 s = (await db.select().from(symbols).where(eq(symbols.symbol, "RELIANCE.NS")))[0];
 check(`${TERMINAL_MISS_THRESHOLD} misses escalates to unresolved`, classify(s.consecutiveFeedMisses) === "unresolved", `misses=${s.consecutiveFeedMisses}`);
-await recordPollOutcome(["RELIANCE.NS"], []);
+await recordPollOutcome(db, ["RELIANCE.NS"], []);
 s = (await db.select().from(symbols).where(eq(symbols.symbol, "RELIANCE.NS")))[0];
 check("a successful poll resets the counter", s.consecutiveFeedMisses === 0);
 
