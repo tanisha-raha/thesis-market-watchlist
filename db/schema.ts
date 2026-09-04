@@ -1,5 +1,5 @@
 import {
-  pgTable, text, timestamp, integer, numeric, uniqueIndex, index, serial, date,
+  pgTable, text, timestamp, integer, numeric, uniqueIndex, index, serial, date, jsonb,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -117,6 +117,9 @@ export const priceBars = pgTable("price_bars", {
   firstObservedAt: timestamp("first_observed_at", { withTimezone: true }).notNull(),
   firstObservedBatchId: integer("first_observed_batch_id").notNull().references(() => ingestionBatches.id),
 
+  // The session open, needed for the overnight gap. Without it a "gap" is just
+  // the daily return wearing a different name, which is how it was first built.
+  currentProviderOpen: numeric("current_provider_open", { precision: 18, scale: 4 }),
   currentProviderClose: numeric("current_provider_close", { precision: 18, scale: 4 }),
   currentProviderAdjClose: numeric("current_provider_adj_close", { precision: 18, scale: 4 }),
   currentProviderVolume: numeric("current_provider_volume", { precision: 22, scale: 0 }),
@@ -201,3 +204,49 @@ export const corporateActions = pgTable("corporate_actions", {
   batchId: integer("batch_id").notNull().references(() => ingestionBatches.id),
   detectedAt: timestamp("detected_at", { withTimezone: true }).notNull(),
 }, (t) => [uniqueIndex("corporate_actions_fingerprint_idx").on(t.fingerprint)]);
+
+/**
+ * Append-only record of things that happened to a symbol.
+ *
+ * Detection runs ONCE PER SYMBOL regardless of how many users watch it, and this
+ * table is the shared output. That is the fan-out property that keeps cost
+ * O(unique symbols) rather than O(users × symbols) — personalisation happens
+ * later, by filtering these rows against a user's watchlist and watermark.
+ *
+ * TRANSIENCE. `occurredAt` is when the condition became true; `resolvedAt` is
+ * when it stopped being true, and is null while it still holds. Rows are never
+ * deleted and `occurredAt` is never overwritten. An event whose entire span
+ * falls inside a user's away-window is a MISSED EVENT — something that fired and
+ * reversed before they got back, which a current-state app can never show.
+ * Resolved events are not garbage-collected.
+ *
+ * `explainJson` holds the actual inputs at detection time — the z-score, the
+ * volatility used, the level crossed, the benchmark return. It is rendered
+ * as-is and never recomputed, because stats drift and a recomputed number would
+ * silently stop matching the event it claims to explain.
+ */
+export const changeEvents = pgTable("change_events", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull().references(() => symbols.symbol, { onDelete: "cascade" }),
+  signalType: text("signal_type").notNull(),
+  window: text("window").notNull(),                  // intraday | 1d
+
+  /** The signal's own natural unit — a z-score, a log ratio, a percentage. */
+  magnitude: numeric("magnitude", { precision: 18, scale: 8 }).notNull(),
+  /** Normalized across signal types, for internal ranking only. Never displayed. */
+  score: numeric("score", { precision: 18, scale: 8 }).notNull(),
+
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  detectedAt: timestamp("detected_at", { withTimezone: true }).notNull(),
+
+  ingestionBatchId: integer("ingestion_batch_id").notNull().references(() => ingestionBatches.id),
+  supersedesId: integer("supersedes_id"),
+  explainJson: jsonb("explain_json").notNull(),
+}, (t) => [
+  // Re-running detection over the same history must not duplicate events.
+  uniqueIndex("change_events_identity_idx").on(t.symbol, t.signalType, t.occurredAt),
+  index("change_events_symbol_occurred_idx").on(t.symbol, t.occurredAt),
+  // The digest asks "what is still unresolved" and "what resolved while I was away".
+  index("change_events_resolved_idx").on(t.resolvedAt),
+]);

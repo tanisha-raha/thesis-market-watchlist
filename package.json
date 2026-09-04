@@ -16,7 +16,8 @@
     "seed:intraday": "node --env-file-if-exists=.env.local --import tsx scripts/seed-intraday.ts",
     "seed:load": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/seed-load.ts",
     "seed:daily": "node --env-file-if-exists=.env.local --import tsx scripts/seed-daily.ts",
-    "test": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/tests.ts"
+    "test": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/tests.ts",
+    "detect": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/detect.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

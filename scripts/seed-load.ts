@@ -68,13 +68,14 @@ async function loadDaily(): Promise<number> {
     // The symbol must exist before its bars can reference it.
     await db.insert(symbols).values({ symbol }).onConflictDoNothing();
 
-    const values = rows.map(([date, , , , close, adjClose, volume]) => ({
+    const values = rows.map(([date, open, , , close, adjClose, volume]) => ({
       symbol,
       tradingDate: date,
       firstObservedClose: num(close),
       firstObservedVolume: num(volume),
       firstObservedAt: now,
       firstObservedBatchId: batch.id,
+      currentProviderOpen: num(open),
       currentProviderClose: num(close),
       currentProviderAdjClose: num(adjClose),
       currentProviderVolume: num(volume),
@@ -87,6 +88,7 @@ async function loadDaily(): Promise<number> {
         target: [priceBars.symbol, priceBars.tradingDate],
         // first_observed_* is absent on purpose — written once, never updated.
         set: {
+          currentProviderOpen: excluded("current_provider_open"),
           currentProviderClose: excluded("current_provider_close"),
           currentProviderAdjClose: excluded("current_provider_adj_close"),
           currentProviderVolume: excluded("current_provider_volume"),

@@ -161,6 +161,7 @@ export async function ingestHistory(
           firstObservedVolume: asNumeric(b.volume),
           firstObservedAt: now,
           firstObservedBatchId: batch.id,
+          currentProviderOpen: asNumeric(b.open),
           currentProviderClose: asNumeric(b.close),
           currentProviderAdjClose: asNumeric(b.adjClose),
           currentProviderVolume: asNumeric(b.volume),
@@ -173,6 +174,7 @@ export async function ingestHistory(
         .onConflictDoUpdate({
           target: [priceBars.symbol, priceBars.tradingDate],
           set: {
+            currentProviderOpen: excluded("current_provider_open"),
             currentProviderClose: excluded("current_provider_close"),
             currentProviderAdjClose: excluded("current_provider_adj_close"),
             currentProviderVolume: excluded("current_provider_volume"),

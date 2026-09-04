@@ -344,3 +344,117 @@ present. The cost is two reductions over bars already fetched.
 provider. Mixing an unadjusted intraday high with an adjusted close would be
 incoherent across a split — the precise failure the corporate-actions work exists to
 prevent. A close-based 52-week high is slightly conservative and always consistent.
+
+---
+
+## 2026-09-04 — Transience is implemented once, as a latched condition
+
+**Decision.** Every transient signal — level crossings, volatility-normalized price
+moves, trend state, volume anomalies, benchmark residuals — is expressed as a
+condition sampled over time and run through a single `latch` function.
+`occurredAt` is when the condition became true; `resolvedAt` is when it stopped.
+
+**Why one implementation.** `resolvedAt` looks like a field and is actually the
+whole missed-event feature. Implemented per signal it would be correct for the
+signal we tested and quietly wrong for the others, and the failure is invisible —
+a missing missed-event looks exactly like a market that did not do anything.
+Sharing one latch means transience is either right everywhere or wrong everywhere,
+and a test on one signal is evidence about all of them.
+
+**`resolvedAt` is when the condition ceased to hold, not when it re-armed.** Those
+are deliberately different instants. Resolution answers "when did this reverse",
+which the user is owed honestly. Re-arming is a separate, stricter test that gates
+whether a NEW event may open, and exists only to stop an oscillation from emitting
+a burst.
+
+---
+
+## 2026-09-04 — Resolution is evaluated against the intraday series, and here is the proof
+
+**Decision.** Transient resolution reads `quote_observations` — live polls and
+seeded 5-minute closes as one ordered series — never daily bars.
+
+**The proof, from real seeded data.** GRASIM.NS on 2026-08-10:
+
+| | |
+|---|---|
+| 52-week high (adjusted closes) | ₹3380.50 |
+| 11:50 IST | ₹3376.70 — below |
+| 11:55 IST | ₹3385.20 — **crossed**, event opens |
+| intraday peak | ₹3407.70 |
+| 14:15 IST | ₹3371.00 — **fell back**, `resolvedAt` set. 140 minutes open |
+| **daily close** | **₹3380.50 — exactly the level, not above it** |
+
+On daily bars this event does not exist. The close is not above the 52-week high,
+so a daily-bar implementation reports nothing at all — not a smaller event, no
+event. That is the failure mode this decision exists to prevent, and it is why the
+5-minute seed was fetched before anything else in Phase 2.
+
+The same trace also demonstrates hysteresis working: the price re-crossed the level
+at 14:30 but never fell through the re-arm band at ₹3363.60, so no second event was
+emitted. The brief's 100.01 / 99.99 / 100.02 case, on real data.
+
+Resolved events are never deleted and `resolvedAt` transitions null → value exactly
+once. That is enforced in SQL, not in application code: the upsert sets
+`resolved_at = coalesce(change_events.resolved_at, excluded.resolved_at)` under a
+`WHERE resolved_at IS NULL` guard, so no later run can move or clear it. Tested in
+both directions.
+
+---
+
+## 2026-09-04 — Detection is limited to a 60-day window
+
+**Decision.** `runDetection` only considers events in the last 60 days, matching the
+intraday history we hold.
+
+**Why.** `symbol_stats` describes a symbol as it is NOW — today's realized
+volatility, today's 52-week levels. Applying today's statistics to bars from two
+years ago produces confident nonsense: a November 2024 session scored against 2026
+volatility read as an 8-sigma overnight gap. Running unbounded, detection emitted
+13,221 events; bounded to the window our statistics can honestly describe, and with
+the gap bug below fixed, it emits 1,658 — about 33 per symbol over 60 days. We only
+claim events for the period we can actually justify.
+
+---
+
+## 2026-09-04 — Two bugs in the overnight gap, both from mixing series
+
+**What happened.** The overnight gap fired on roughly a third of all sessions, at an
+average of 4 sigma. Two independent causes, both the same mistake in different
+clothes.
+
+1. **`price_bars` had no open column.** The gap was computed as `close / prevClose`,
+   which is not a gap — it is the daily return with a misleading name. Fixed by
+   storing `current_provider_open`; the seed file already had it, because the 5m and
+   daily fetches deliberately captured full OHLCV on the grounds that the fetch is
+   irreversible and the load is not. That decision paid for itself within a day.
+
+2. **The open is unadjusted, the previous close was adjusted.** The provider gives
+   us no adjusted open, so comparing a raw open against a dividend-adjusted previous
+   close injected the entire adjustment ratio into every gap. For RELIANCE that ratio
+   ran to 0.99144 — against a daily volatility of ~0.9%, a full sigma of pure
+   artefact. The gap now compares raw against raw, and `explainJson` records that it
+   does.
+
+This is the same class of error as computing a 52-week high across a split, and it
+is worth stating plainly: *any ratio between two prices must take both from the same
+series.* Both bugs were caught by looking at the output distribution rather than by
+a test, which is an argument for always inspecting what a new detector actually
+emits before trusting it.
+
+---
+
+## 2026-09-04 — Magnitude, score, and evidence are three different things
+
+**Decision.** Each event carries `magnitude` in the signal's own natural unit (a
+z-score, a fraction above a level, a log volume ratio), a `score` normalized for
+ranking, and `explainJson` holding the actual inputs at the moment of firing.
+
+Only `explainJson` is ever rendered. `score` exists solely to order a digest and is
+never shown, nor is anything derived from it — no composite, no "attention score out
+of 100". A reviewer asking where a number came from must always get a real answer.
+
+`explainJson` is written once and never updated. It is the evidence for a claim made
+at a particular moment; recomputing it later against drifted statistics would
+produce evidence for a claim we are no longer making, and the mismatch is exactly
+what a careful reader would catch.

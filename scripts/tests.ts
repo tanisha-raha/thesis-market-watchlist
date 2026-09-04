@@ -8,17 +8,18 @@
  *
  * Run: npm test
  */
-import { eq, sql } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  corporateActions, ingestionBatches, priceBars, quoteObservations, quotes,
-  symbols, symbolStats, watchlistItems,
+  changeEvents, corporateActions, ingestionBatches, priceBars, quoteObservations,
+  quotes, symbols, symbolStats, watchlistItems,
 } from "@/db/schema";
 import { ingestQuotes, ingestHistory, refreshSymbolStats } from "@/lib/ingestion";
 import { recordPollOutcome } from "@/lib/feed-health";
 import { computeStats } from "@/lib/stats";
 import { ReplayMarketDataProvider } from "@/lib/market/replay";
 import { detectCorporateAction, isCandidate } from "@/lib/corporate-actions";
+import { detectEvents, isMissedEvent } from "@/lib/change-engine";
 import type { Bar, Quote } from "@/lib/market/types";
 
 let passed = 0;
@@ -40,6 +41,7 @@ const bar = (date: string, close: number, volume = 1000): Bar => ({
 
 /** Removes every trace of the fixture symbol so the suite is rerunnable. */
 async function reset() {
+  await db.delete(changeEvents).where(eq(changeEvents.symbol, SYM));
   await db.delete(quoteObservations).where(eq(quoteObservations.symbol, SYM));
   await db.delete(priceBars).where(eq(priceBars.symbol, SYM));
   await db.delete(symbolStats).where(eq(symbolStats.symbol, SYM));
@@ -257,6 +259,109 @@ section("corporate-action guards (pure — protects a must-land Phase 4 input)")
   const b = detectCorporateAction(SYM, span(200, 100.02));            // slightly different factor
   check("the fingerprint is stable across a slightly different factor",
     isCandidate(a) && isCandidate(b) && a.fingerprint === b.fingerprint);
+}
+
+/* ------------------------------------------------------------------------- */
+section("transient resolution — the missed-event feature");
+{
+  const stats = {
+    realizedVol20: 0.01, medianVolume20: 1000, ma20: 100, beta60: 1,
+    high52w: 100, low52w: 80, high20: 100, low20: 90, sessionsUsed: 300,
+  };
+  const at = (h: number, m: number) => new Date(Date.UTC(2026, 7, 10, h, m));
+  const obs = (pts: [number, number, number][]) => pts.map(([h, m, price]) => ({ at: at(h, m), price }));
+
+  // Crosses the 52-week high, holds, then falls back through the re-arm band.
+  const fireAndReverse = detectEvents({
+    symbol: SYM, stats, dailyBars: [], benchmarkBars: [],
+    observations: obs([[4, 0, 99], [5, 0, 105], [6, 0, 106], [7, 0, 99], [8, 0, 98]]),
+  }).filter((e) => e.signalType === "cross_52w_high");
+
+  check("a fire-and-reverse produces exactly one event", fireAndReverse.length === 1, `${fireAndReverse.length}`);
+  check("occurredAt is when the condition became true",
+    fireAndReverse[0]?.occurredAt.getTime() === at(5, 0).getTime(),
+    fireAndReverse[0]?.occurredAt.toISOString());
+  check("resolvedAt is when it stopped holding, not when it re-armed",
+    fireAndReverse[0]?.resolvedAt?.getTime() === at(7, 0).getTime(),
+    fireAndReverse[0]?.resolvedAt?.toISOString());
+  check("it is a missed event for someone away across the whole span",
+    isMissedEvent(fireAndReverse[0], at(4, 30), at(9, 0)));
+  check("it is NOT a missed event for someone who was present when it fired",
+    !isMissedEvent(fireAndReverse[0], at(6, 0), at(9, 0)));
+
+  // The brief's oscillation case: 100.01 / 99.99 / 100.02 around the level.
+  const oscillating = detectEvents({
+    symbol: SYM, stats, dailyBars: [], benchmarkBars: [],
+    observations: obs([
+      [4, 0, 99], [4, 5, 100.01], [4, 10, 99.99], [4, 15, 100.02],
+      [4, 20, 99.98], [4, 25, 100.03], [4, 30, 99.99],
+    ]),
+  }).filter((e) => e.signalType === "cross_52w_high");
+  check("hysteresis: oscillating around the level fires once, not repeatedly",
+    oscillating.length === 1, `${oscillating.length} events`);
+
+  // A condition still holding at the end of the series must stay open.
+  const stillOpen = detectEvents({
+    symbol: SYM, stats, dailyBars: [], benchmarkBars: [],
+    observations: obs([[4, 0, 99], [5, 0, 105], [6, 0, 106]]),
+  }).filter((e) => e.signalType === "cross_52w_high");
+  check("a condition that still holds has a null resolvedAt", stillOpen[0]?.resolvedAt === null);
+
+  // Resolution must come from the intraday path. With no observations there is
+  // nothing to resolve against, which is exactly the failure mode we are guarding
+  // against: built on daily bars, this feature silently never fires.
+  const dailyOnly = detectEvents({
+    symbol: SYM, stats, observations: [], benchmarkBars: [],
+    dailyBars: [bar("2026-08-10", 100), bar("2026-08-11", 106), bar("2026-08-12", 99)],
+  }).filter((e) => e.signalType.startsWith("cross_"));
+  check("without an intraday series no crossing is detected at all", dailyOnly.length === 0,
+    `${dailyOnly.length} — daily bars alone cannot express a reversal`);
+}
+
+section("resolved events are immutable and never garbage-collected");
+{
+  await reset();
+  const occurredAt = new Date("2026-08-10T06:25:00Z");
+  const firstResolved = new Date("2026-08-10T08:45:00Z");
+  const insert = async (resolvedAt: Date | null) => {
+    const [batch] = await db.insert(ingestionBatches).values({ status: "STARTED", requestedCount: 1 }).returning();
+    return db.insert(changeEvents).values({
+      symbol: SYM, signalType: "cross_52w_high", window: "intraday",
+      magnitude: "0.05", score: "5", occurredAt, resolvedAt,
+      detectedAt: new Date(), ingestionBatchId: batch.id,
+      explainJson: { signal: "cross_52w_high", price: 105, level: 100 },
+    }).onConflictDoUpdate({
+      target: [changeEvents.symbol, changeEvents.signalType, changeEvents.occurredAt],
+      set: { resolvedAt: sql`coalesce(${changeEvents.resolvedAt}, excluded.resolved_at)` },
+      setWhere: isNull(changeEvents.resolvedAt),
+    });
+  };
+
+  await insert(null);
+  let row = (await db.select().from(changeEvents).where(eq(changeEvents.symbol, SYM)))[0];
+  check("an unresolved event is stored open", row.resolvedAt === null);
+
+  await insert(firstResolved);
+  row = (await db.select().from(changeEvents).where(eq(changeEvents.symbol, SYM)))[0];
+  check("re-detection sets resolvedAt once", row.resolvedAt?.getTime() === firstResolved.getTime());
+
+  await insert(new Date("2026-08-11T10:00:00Z"));
+  row = (await db.select().from(changeEvents).where(eq(changeEvents.symbol, SYM)))[0];
+  check("a later run cannot move resolvedAt", row.resolvedAt?.getTime() === firstResolved.getTime(),
+    row.resolvedAt?.toISOString());
+
+  await insert(null);
+  row = (await db.select().from(changeEvents).where(eq(changeEvents.symbol, SYM)))[0];
+  check("a later run cannot clear resolvedAt back to null", row.resolvedAt?.getTime() === firstResolved.getTime());
+
+  const count = await db.select({ n: sql<number>`count(*)::int` }).from(changeEvents).where(eq(changeEvents.symbol, SYM));
+  check("re-detection never duplicates the event", count[0].n === 1, `${count[0].n} row(s)`);
+  // jsonb normalises key order, so compare values rather than serialised text.
+  const explain = row.explainJson as Record<string, unknown>;
+  check("explain_json is unchanged by re-detection",
+    explain.signal === "cross_52w_high" && explain.price === 105 && explain.level === 100
+      && Object.keys(explain).length === 3,
+    JSON.stringify(explain));
 }
 
 await reset();

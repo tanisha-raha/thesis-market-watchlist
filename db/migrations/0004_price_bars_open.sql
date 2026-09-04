@@ -1,0 +1,1 @@
+ALTER TABLE "price_bars" ADD COLUMN "current_provider_open" numeric(18, 4);
