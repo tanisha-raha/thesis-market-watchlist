@@ -167,6 +167,25 @@ idealised feed.
 
 ---
 
+## The clearest thing we can show you
+
+**GRASIM.NS, 10 August 2026.** Its 52-week high was ₹3380.50. At 11:55 IST the price
+crossed it, peaked at ₹3407.70, and fell back below at 14:15 — 140 minutes above a
+52-week high, then gone.
+
+**That day's closing price was ₹3380.50: exactly the level, not above it.**
+
+On daily bars this event does not exist. Not smaller, not weaker — absent. A
+watchlist built on daily closes tells you nothing happened. The same trace also
+shows the hysteresis rule working: the price re-crossed the level at 14:30 without
+having fallen through the re-arm band, and no duplicate event was emitted.
+
+Full trace, including the stored event and every price tick, in
+[docs/grasim-trace.md](docs/grasim-trace.md). It comes from the committed seed and
+reproduces with `npm run detect`.
+
+---
+
 ## Known limitations
 
 - **Dividends are not adjusted for.** Splits are handled; dividend adjustment is
