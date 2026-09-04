@@ -114,3 +114,26 @@ correctly configured. A plain Node runner also resolves `server-only` to its int
 client stub; the React server condition resolves its empty server marker instead. Production still
 supplies environment variables through its host; no local secret is committed or required by the
 script.
+
+---
+
+## 2026-09-04 — Production browser checks wait for the persisted watchlist row
+
+**Decision.** The production E2E waits for the row-specific `Remove RELIANCE.NS` control after
+adding a symbol, rather than any visible `RELIANCE.NS` text. It also verifies that an unresolvable
+symbol is explicitly rejected.
+
+**Why.** The add field's autocomplete may render a `RELIANCE.NS` suggestion before the Server
+Action has completed its quote refresh and revalidation. The old selector treated that suggestion
+as a persisted row, then inspected the page too early; this was reproducible under Vercel's slower
+request timing and produced false missing-price/change/freshness failures. Waiting for the Remove
+control synchronizes on the actual persisted row without an arbitrary delay. The unresolvable
+case exercises the required reconciliation of Yahoo's silent symbol drops.
+
+**Production observation.** On `thesis-market-watchlist.vercel.app`, the corrected E2E passed:
+Yahoo supplied RELIANCE.NS price, previous-close movement, and exchange freshness; `infosys`
+returned INFY.NS; and `NOTAREALTICKER.NS` was refused. Vercel request logs for this run showed only
+successful application requests and no 429, timeout, or thrown-error record. They do not expose
+upstream Yahoo request durations or payloads, so individual provider latency was not measurable
+from the available logs. The successful flow completed within the E2E's 40-second persisted-row
+timeout; no claim beyond that bound is made.

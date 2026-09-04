@@ -41,8 +41,9 @@ console.log("\nadd a symbol");
 const symbolInput = page.locator('input[name="symbol"][autocomplete="off"]');
 await symbolInput.fill("RELIANCE.NS");
 await page.getByRole("button", { name: "Add" }).click();
-await page.getByText("RELIANCE.NS").first().waitFor({ timeout: 40_000 });
-check("symbol appears in the list", await page.getByText("RELIANCE.NS").first().isVisible());
+const removeReliance = page.getByRole("button", { name: "Remove RELIANCE.NS" });
+await removeReliance.waitFor({ state: "visible", timeout: 40_000 });
+check("symbol appears in the list", await removeReliance.isVisible());
 
 const body = await page.locator("body").innerText();
 check("a rupee price is rendered", /₹[\d,]+\.\d{2}/.test(body), body.match(/₹[\d,]+\.\d{2}/)?.[0]);
@@ -61,9 +62,18 @@ const gotSuggestions = await suggestion.first().waitFor({ state: "visible", time
   .catch(() => false);
 check("search suggests INFY.NS", gotSuggestions);
 
+console.log("\nunresolvable symbol");
+await symbolInput.fill("NOTAREALTICKER.NS");
+await page.getByRole("button", { name: "Add" }).click();
+const unresolvedMessage = page.getByText("We could not resolve NOTAREALTICKER.NS on NSE.");
+const rejectedUnresolvable = await unresolvedMessage.waitFor({ state: "visible", timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check("silently dropped symbol is explicitly rejected", rejectedUnresolvable);
+
 console.log("\nremove");
 await symbolInput.fill("");
-await page.getByRole("button", { name: "Remove RELIANCE.NS" }).click();
+await removeReliance.click();
 await page.getByText("Nothing on your watchlist yet").waitFor({ timeout: 20_000 });
 check("removal returns to empty state", true);
 
