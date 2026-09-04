@@ -5,8 +5,7 @@ import { signOut } from "@/app/actions";
 import { AddSymbolForm } from "./add-symbol-form";
 import { WatchlistTable } from "./watchlist-table";
 
-// Quotes are fetched per request; caching the page would defeat the freshness
-// guarantee the UI makes.
+// Quotes are read per request; caching would defeat the freshness guarantee.
 export const dynamic = "force-dynamic";
 
 export default async function WatchlistPage() {
@@ -17,17 +16,19 @@ export default async function WatchlistPage() {
 
   return (
     <div>
-      <header className="flex items-baseline justify-between">
+      <header className="flex items-baseline justify-between border-b border-line pb-4">
         <div>
-          <h1 className="text-2xl font-medium tracking-tight">Watchlist</h1>
-          <p className="mt-1 text-sm text-[--color-muted]">{user.email}</p>
+          <h1 className="text-section font-medium tracking-tight">Watchlist</h1>
+          <p className="mt-0.5 text-meta text-faint">{user.email}</p>
         </div>
         <form action={signOut}>
-          <button className="text-sm text-[--color-muted] hover:text-[--color-ink]">Sign out</button>
+          <button className="text-meta text-muted transition-colors hover:text-ink">
+            Sign out
+          </button>
         </form>
       </header>
 
-      <div className="mt-8">
+      <div className="mt-6">
         <AddSymbolForm />
       </div>
 

@@ -3,6 +3,10 @@
 import { useActionState, useState } from "react";
 import { signIn, signUp, type FormState } from "@/app/actions";
 
+const field =
+  "mt-1 w-full rounded-sm border border-line bg-surface px-3 py-2 text-body " +
+  "outline-none transition-colors focus:border-accent";
+
 export function AuthForm() {
   const [mode, setMode] = useState<"in" | "up">("in");
   const action = mode === "in" ? signIn : signUp;
@@ -10,43 +14,49 @@ export function AuthForm() {
 
   return (
     <div>
-      <div className="mb-5 flex gap-1 text-sm">
-        {(["in", "up"] as const).map((m) => (
+      {/* Segmented control: the selected tab carries the ink fill, the other is quiet. */}
+      <div className="mb-6 inline-flex rounded-sm border border-line bg-surface p-0.5 text-meta">
+        {([["in", "Sign in"], ["up", "Create account"]] as const).map(([m, label]) => (
           <button
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`rounded px-3 py-1 ${
-              mode === m ? "bg-[--color-ink] text-white" : "text-[--color-muted] hover:text-[--color-ink]"
-            }`}
+            aria-pressed={mode === m}
+            className={
+              "rounded-[2px] px-3 py-1.5 transition-colors " +
+              (mode === m
+                ? "bg-ink text-white"
+                : "text-muted hover:text-ink")
+            }
           >
-            {m === "in" ? "Sign in" : "Create account"}
+            {label}
           </button>
         ))}
       </div>
 
-      <form action={formAction} className="space-y-3">
+      <form action={formAction} className="space-y-4">
         <label className="block">
-          <span className="text-xs text-[--color-muted]">Email</span>
-          <input
-            name="email" type="email" required autoComplete="email"
-            className="mt-1 w-full rounded border border-[--color-line] bg-white px-3 py-2 text-sm outline-none focus:border-[--color-ink]"
-          />
+          <span className="label">Email</span>
+          <input name="email" type="email" required autoComplete="email" className={field} />
         </label>
         <label className="block">
-          <span className="text-xs text-[--color-muted]">Password</span>
+          <span className="label">Password</span>
           <input
             name="password" type="password" required minLength={8}
             autoComplete={mode === "in" ? "current-password" : "new-password"}
-            className="mt-1 w-full rounded border border-[--color-line] bg-white px-3 py-2 text-sm outline-none focus:border-[--color-ink]"
+            className={field}
           />
         </label>
 
-        {state?.error && <p className="text-sm text-[--color-down]">{state.error}</p>}
+        {state?.error && (
+          <p className="text-meta text-down" role="alert">{state.error}</p>
+        )}
 
         <button
-          type="submit" disabled={pending}
-          className="w-full rounded bg-[--color-ink] py-2 text-sm text-white disabled:opacity-50"
+          type="submit"
+          disabled={pending}
+          className="w-full rounded-sm bg-ink py-2.5 text-body font-medium text-white
+                     transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           {pending ? "…" : mode === "in" ? "Sign in" : "Create account"}
         </button>

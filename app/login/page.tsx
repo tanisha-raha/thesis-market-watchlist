@@ -6,12 +6,12 @@ export default async function LoginPage() {
   if (await getSessionUser()) redirect("/watchlist");
 
   return (
-    <div className="mx-auto max-w-sm pt-12">
-      <h1 className="text-2xl font-medium tracking-tight">Thesis</h1>
-      <p className="mt-1 text-sm text-[--color-muted]">
+    <div className="mx-auto max-w-sm pt-16">
+      <h1 className="text-title font-medium tracking-tight">Thesis</h1>
+      <p className="mt-1 text-body text-muted">
         A watchlist that remembers why you&rsquo;re watching.
       </p>
-      <div className="mt-8">
+      <div className="mt-10">
         <AuthForm />
       </div>
     </div>

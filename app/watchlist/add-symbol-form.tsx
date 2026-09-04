@@ -35,29 +35,29 @@ export function AddSymbolForm() {
           name="symbol" value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder="Add a symbol — try RELIANCE.NS or search &ldquo;Infosys&rdquo;"
           autoComplete="off"
-          className="flex-1 rounded border border-[--color-line] bg-white px-3 py-2 text-sm outline-none focus:border-[--color-ink]"
+          className="flex-1 rounded-sm border border-line bg-surface px-3 py-2 text-body outline-none transition-colors focus:border-accent"
         />
         <button
           type="submit" disabled={pending || !query.trim()}
-          className="rounded bg-[--color-ink] px-4 py-2 text-sm text-white disabled:opacity-40"
+          className="rounded-sm bg-ink px-4 py-2 text-body font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           {pending ? "…" : "Add"}
         </button>
       </div>
 
-      {state?.error && <p className="mt-2 text-sm text-[--color-down]">{state.error}</p>}
+      {state?.error && <p className="mt-2 text-meta text-down" role="alert">{state.error}</p>}
 
       {results.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded border border-[--color-line] bg-white shadow-sm">
+        <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-sm border border-line bg-surface shadow-sm">
           {results.map((r) => (
             <li key={r.symbol}>
               <button
                 type="button"
                 onClick={() => { setQuery(r.symbol); setResults([]); }}
-                className="flex w-full items-baseline justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"
+                className="flex w-full items-baseline justify-between px-3 py-2 text-left text-body transition-colors hover:bg-accent-soft"
               >
                 <span className="font-medium">{r.symbol}</span>
-                <span className="ml-3 truncate text-xs text-[--color-muted]">{r.name}</span>
+                <span className="ml-3 truncate text-meta text-muted">{r.name}</span>
               </button>
             </li>
           ))}

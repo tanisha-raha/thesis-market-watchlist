@@ -6,22 +6,19 @@ import type { WatchlistRow } from "@/lib/watchlist";
 const inr = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
- * Freshness is never implied — it is stated.
+ * Freshness is stated, never implied.
  *
- * Every price carries the exchange timestamp it was reported at, and a price
- * served from storage because the feed did not answer says so explicitly. The
- * one thing this component must never do is render a stale number as though it
- * were live.
+ * The one thing this must never do is render a stale price as though it were
+ * live, so every row carries the exchange timestamp it came from and says how
+ * old it is. Set quietly — it is context, not an alarm.
  */
 function Freshness({ row }: { row: WatchlistRow }) {
-  if (row.asOf == null) {
-    return <span className="text-[--color-muted]">no quote yet</span>;
-  }
-  const closed = row.marketState && row.marketState !== "REGULAR";
+  if (row.asOf == null) return <span className="text-faint">awaiting first quote</span>;
+  const closed = row.marketState != null && row.marketState !== "REGULAR";
   return (
-    <span className="text-[--color-muted]" title={`Exchange time: ${formatIST(row.asOf)} IST`}>
+    <span className="text-faint" title={`Exchange time: ${formatIST(row.asOf)} IST`}>
       {formatAge(row.asOf)}
-      {closed ? " · market closed" : ""}
+      {closed && <span> · market closed</span>}
     </span>
   );
 }
@@ -29,60 +26,76 @@ function Freshness({ row }: { row: WatchlistRow }) {
 export function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
   if (rows.length === 0) {
     return (
-      <p className="rounded border border-dashed border-[--color-line] px-4 py-10 text-center text-sm text-[--color-muted]">
-        Nothing on your watchlist yet. Add a symbol above.
-      </p>
+      <div className="rounded-sm border border-dashed border-line-strong px-6 py-12 text-center">
+        <p className="text-body text-muted">Nothing on your watchlist yet.</p>
+        <p className="mt-1 text-meta text-faint">
+          Add a symbol above, and tell us why you&rsquo;re watching it.
+        </p>
+      </div>
     );
   }
 
   return (
-    <ul className="divide-y divide-[--color-line] border-y border-[--color-line]">
-      {rows.map((row) => (
-        <li key={row.symbol} className="flex items-center gap-4 py-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <span className="font-medium">{row.symbol}</span>
-              {row.name && (
-                <span className="truncate text-xs text-[--color-muted]">{row.name}</span>
-              )}
-            </div>
-            <div className="mt-0.5 text-xs">
-              <Freshness row={row} />
-            </div>
-            {isUserVisible(row.health) && (
-              <p className="mt-1 text-xs text-[--color-down]">
-                We have not been able to resolve this symbol in recent updates. It may have been
-                renamed or delisted, and we are not currently monitoring it.
-              </p>
-            )}
-          </div>
-
-          <div className="text-right tabular-nums">
-            <div className="text-sm">
-              {row.price == null ? "—" : `₹${inr.format(row.price)}`}
-            </div>
-            {row.changePercent != null && (
-              <div
-                className={`text-xs ${row.changePercent >= 0 ? "text-[--color-up]" : "text-[--color-down]"}`}
-              >
-                {row.changePercent >= 0 ? "+" : ""}
-                {row.changePercent.toFixed(2)}%
-                <span className="ml-1 text-[--color-muted]">vs prev close</span>
+    <table className="w-full border-collapse">
+      <thead>
+        <tr className="border-b border-line">
+          <th className="label pb-2 text-left font-medium">Symbol</th>
+          <th className="label pb-2 text-right font-medium">Price</th>
+          <th className="label pb-2 text-right font-medium">Change</th>
+          <th className="pb-2" />
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.symbol} className="border-b border-line align-top last:border-0">
+            <td className="py-3 pr-4">
+              <div className="font-medium">{row.symbol}</div>
+              {row.name && <div className="mt-0.5 truncate text-meta text-muted">{row.name}</div>}
+              <div className="mt-1 text-micro">
+                <Freshness row={row} />
               </div>
-            )}
-          </div>
+              {isUserVisible(row.health) && (
+                <p className="mt-2 max-w-sm border-l-2 border-down pl-2 text-micro text-down">
+                  We have not been able to resolve this symbol in recent updates. It may have been
+                  renamed or delisted, and we are not currently monitoring it.
+                </p>
+              )}
+            </td>
 
-          <form action={removeFromWatchlist}>
-            <input type="hidden" name="symbol" value={row.symbol} />
-            <button
-              className="text-xs text-[--color-muted] hover:text-[--color-down]"
-              aria-label={`Remove ${row.symbol}`}
-            >
-              Remove
-            </button>
-          </form>
-        </li>
-      ))}
-    </ul>
+            <td className="num py-3 text-right text-emphasis">
+              {row.price == null ? <span className="text-faint">—</span> : `₹${inr.format(row.price)}`}
+            </td>
+
+            <td className="py-3 pl-4 text-right">
+              {row.changePercent == null ? (
+                <span className="text-faint">—</span>
+              ) : (
+                <>
+                  <div
+                    className={`num text-body ${row.changePercent >= 0 ? "text-up" : "text-down"}`}
+                  >
+                    {row.changePercent >= 0 ? "+" : ""}
+                    {row.changePercent.toFixed(2)}%
+                  </div>
+                  <div className="text-micro text-faint">vs prev close</div>
+                </>
+              )}
+            </td>
+
+            <td className="py-3 pl-4 text-right">
+              <form action={removeFromWatchlist}>
+                <input type="hidden" name="symbol" value={row.symbol} />
+                <button
+                  className="text-micro text-faint transition-colors hover:text-down"
+                  aria-label={`Remove ${row.symbol}`}
+                >
+                  Remove
+                </button>
+              </form>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
