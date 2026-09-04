@@ -10,8 +10,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen">
-        <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-6">
-          <main className="flex-1 py-12">{children}</main>
+        <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 sm:px-6">
+          <main className="flex-1 py-8 sm:py-12">{children}</main>
           {/*
             Visible but out of the way: a hairline rule, faint text, and no
             emphasis. It is a standing statement, not a notice to be read twice.

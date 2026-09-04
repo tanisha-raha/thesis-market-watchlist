@@ -30,11 +30,13 @@ await page.getByRole("button", { name: "Create account" }).first().click();
 await page.locator('input[name="email"]').fill(email);
 await page.locator('input[name="password"]').fill("hunter2hunter2");
 await Promise.all([
-  page.waitForURL("**/watchlist", { timeout: 30_000 }),
+  page.waitForURL("**/digest", { timeout: 30_000 }),
   page.getByRole("button", { name: "Create account" }).last().click(),
 ]);
-check("signup lands on /watchlist", page.url().includes("/watchlist"), page.url());
+check("signup lands on /digest", page.url().includes("/digest"), page.url());
 check("shows the signed-in email", await page.getByText(email).isVisible());
+await page.getByRole("link", { name: "Watchlist" }).click();
+await page.waitForURL("**/watchlist");
 check("empty state shown", await page.getByText("Nothing on your watchlist yet").isVisible());
 
 console.log("\nadd a symbol");
@@ -52,6 +54,16 @@ check("freshness is stated", /just now|min ago|\dh ago|market closed|no quote ye
   body.match(/just now|\d+ min ago|\dh ago|market closed/)?.[0]);
 check("disclaimer present", /not an advisory product/.test(body));
 check("no advice language", !/\b(buy|sell|hold|target price|recommend)\b/i.test(body));
+
+console.log("\nsymbol detail");
+await page.getByRole("link", { name: "RELIANCE.NS" }).click();
+await page.waitForURL("**/symbol/RELIANCE.NS", { timeout: 20_000 });
+const detail = await page.locator("main").innerText();
+check("watchlist symbol opens its detail", /RELIANCE\.NS/.test(detail));
+check("detail carries price context", /₹[\d,]+\.\d{2}/.test(detail) && /vs prev close/.test(detail));
+check("detail has a truthful no-thesis state", /No thesis recorded/.test(detail));
+await page.goBack();
+await page.waitForURL("**/watchlist", { timeout: 20_000 });
 
 console.log("\nsearch");
 await symbolInput.fill("");

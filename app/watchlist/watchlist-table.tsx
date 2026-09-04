@@ -49,8 +49,18 @@ export function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
         {rows.map((row) => (
           <tr key={row.symbol} className="border-b border-line align-top last:border-0">
             <td className="py-3 pr-4">
-              <div className="font-medium">{row.symbol}</div>
+              <Link
+                href={`/symbol/${encodeURIComponent(row.symbol)}`}
+                className="font-medium underline-offset-2 transition-colors hover:text-accent hover:underline"
+              >
+                {row.symbol}
+              </Link>
               {row.name && <div className="mt-0.5 truncate text-meta text-muted">{row.name}</div>}
+              {row.thesisState && row.thesisState !== "WATCHING" && (
+                <div className={`mt-1 text-micro ${row.thesisState === "CONTRADICTED" ? "text-contradiction" : row.thesisState === "TRIGGERED" ? "text-trigger" : "text-muted"}`}>
+                  Thesis {row.thesisState.replace("_", " ").toLowerCase()}
+                </div>
+              )}
               <div className="mt-1 text-micro">
                 <Freshness row={row} />
               </div>
@@ -99,3 +109,4 @@ export function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
     </table>
   );
 }
+import Link from "next/link";
