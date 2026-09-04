@@ -31,7 +31,7 @@ today.* Three kinds of news a conventional watchlist cannot express:
 
 Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
 
-**Working now, deployed and verified end to end**
+**Built and verified end to end**
 
 - Email/password auth with server-side sessions (tokens stored hashed)
 - Symbol search across NSE, add and remove from a watchlist
