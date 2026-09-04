@@ -8,7 +8,7 @@
  *
  * Run: npm test
  */
-import { eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   changeEvents, corporateActions, ingestionBatches, priceBars, quoteObservations,
@@ -22,6 +22,7 @@ import { detectCorporateAction, isCandidate } from "@/lib/corporate-actions";
 import { detectEvents, isMissedEvent } from "@/lib/change-engine";
 import { evaluateThesis, resolveState } from "@/lib/thesis-engine";
 import { applyCorporateActions } from "@/lib/thesis";
+import { advanceDigestWatermark, advanceWatermark } from "@/lib/digest";
 import type { Bar, Quote } from "@/lib/market/types";
 
 let passed = 0;
@@ -505,6 +506,28 @@ section("corporate actions adjust what the USER typed");
   const p2 = again.paramsJson as Record<string, unknown>;
   check("re-running does not compound the adjustment", p2.low === 540 && p2.high === 560,
     `low=${p2.low}`);
+
+  await db.delete(users).where(eq(users.id, u.id));
+}
+
+/* ------------------------------------------------------------------------- */
+section("digest read receipts are monotonic and scoped to the watchlist");
+{
+  await reset();
+  const [u] = await db.insert(users)
+    .values({ email: `digest+${Date.now()}@example.com`, passwordHash: "x" }).returning();
+  await db.insert(watchlistItems).values({ userId: u.id, symbol: SYM });
+
+  const newer = new Date("2026-09-04T06:00:00.000Z");
+  const older = new Date("2026-09-04T05:00:00.000Z");
+  await advanceDigestWatermark(u.id, newer);
+  await advanceWatermark(u.id, [SYM], older);
+
+  const [state] = await db.select().from(userSymbolReadState)
+    .where(and(eq(userSymbolReadState.userId, u.id), eq(userSymbolReadState.symbol, SYM)));
+  check("digest receipt creates a per-symbol watermark", state != null);
+  check("an older tab cannot move the watermark backwards",
+    state.lastSeenAt.getTime() === newer.getTime(), state.lastSeenAt.toISOString());
 
   await db.delete(users).where(eq(users.id, u.id));
 }

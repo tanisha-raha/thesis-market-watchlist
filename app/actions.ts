@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { authenticate, createSession, destroySession, getSessionUser, registerUser } from "@/lib/auth";
 import { addSymbol, removeSymbol } from "@/lib/watchlist";
 import { acknowledgeThesis, createThesis, creationContext } from "@/lib/thesis";
+import { advanceDigestWatermark } from "@/lib/digest";
+import { lastCommittedBatchAt } from "@/lib/ingestion";
 import type { ThesisType } from "@/lib/thesis-engine";
 
 export type FormState = { error?: string } | undefined;
@@ -110,4 +112,19 @@ export async function acknowledge(formData: FormData): Promise<void> {
   const thesisId = Number(formData.get("thesisId"));
   if (Number.isFinite(thesisId)) await acknowledgeThesis(user.id, thesisId);
   revalidatePath("/digest");
+}
+
+/** Commits a digest snapshot only after the browser has received and rendered it. */
+export async function markDigestRead(cutoffIso: string): Promise<void> {
+  const user = await getSessionUser();
+  if (!user) return;
+
+  const requested = new Date(cutoffIso);
+  if (!Number.isFinite(requested.getTime())) return;
+  const committed = await lastCommittedBatchAt();
+  if (!committed) return;
+
+  // A caller can only acknowledge the snapshot it saw, never a future batch.
+  const cutoff = requested <= committed ? requested : committed;
+  await advanceDigestWatermark(user.id, cutoff);
 }

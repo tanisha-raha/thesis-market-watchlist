@@ -5,6 +5,7 @@ import { getDigest } from "@/lib/digest";
 import { Anomaly, Contradiction, Missed, Trigger } from "@/components/digest-cards";
 import { formatIST } from "@/lib/time";
 import { AppShell } from "@/components/app-shell";
+import { DigestReadReceipt } from "@/components/digest-read-receipt";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export default async function DigestPage() {
 
   return (
     <AppShell email={user.email} active="digest">
+      <DigestReadReceipt cutoff={d.cutoff.toISOString()} />
 
       <section className="mt-8">
         <h2 className="text-title font-medium tracking-tight">While you were away</h2>

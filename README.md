@@ -108,6 +108,8 @@ docker run -d --name thesis-pg \
 | `npm run validate:source` | Re-runs the Phase 0 data-source validation |
 | `npm run seed:daily` / `seed:intraday` | Fetch history locally into `seed/` |
 | `npm run seed:load` | Load committed seed files into the database |
+| `npm run detect` | Run the deterministic change engine over loaded history |
+| `npm run seed:demo` | Create the reproducible demo account and verify its digest |
 
 ### Scheduled ingestion
 
@@ -119,6 +121,21 @@ GET /api/ingest?stats=1    Authorization: Bearer $CRON_SECRET   # once daily, af
 ```
 
 It refuses every request when `CRON_SECRET` is unset rather than failing open.
+
+### Demo replay
+
+After loading the committed seed, run:
+
+```bash
+npm run detect
+npm run seed:demo
+```
+
+The script creates `demo@thesis.app` from the same stored bars and intraday
+observations the application uses. It verifies that the digest contains a thesis
+contradiction, a condition trigger, and a resolved intraday missed event. It does
+not insert fabricated market events. Use the credentials printed by the script;
+they are intentionally local/demo-only and should not be reused in production.
 
 ### Deployment
 

@@ -566,3 +566,12 @@ export async function advanceWatermark(userId: number, symbols_: string[], to: D
       });
   }
 }
+
+/** Marks the current completed-ingestion snapshot read for every symbol a user watches. */
+export async function advanceDigestWatermark(userId: number, to: Date): Promise<void> {
+  const items = await db
+    .select({ symbol: watchlistItems.symbol })
+    .from(watchlistItems)
+    .where(eq(watchlistItems.userId, userId));
+  await advanceWatermark(userId, items.map((item) => item.symbol), to);
+}

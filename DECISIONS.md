@@ -164,9 +164,10 @@ we are tired and attached to everything. Cut in this order, without renegotiatin
    full shape of the engine is still demonstrable. `breakout`, `momentum_down`,
    `volatility_watch` and `volume_expansion` are more instances of a pattern that
    is already proven by the first three.
-4. **Missed-event replay UI** (the timeline view). **Keep the data** — keep
-   `resolved_at`, keep detection, keep the events queryable. Only the rendered
-   timeline goes, and the digest can still state that a missed event occurred.
+4. **Missed-event replay UI** (the timeline view). This cut was later avoided:
+   the digest now renders the persisted intraday interval, duration, and the
+   daily-close blind spot from the same event data. There is no separate fake
+   replay path.
 
 **Never cut, at any hour:**
 
