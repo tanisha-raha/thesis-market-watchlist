@@ -20,6 +20,7 @@ import { computeStats } from "@/lib/stats";
 import { ReplayMarketDataProvider } from "@/lib/market/replay";
 import { detectCorporateAction, isCandidate } from "@/lib/corporate-actions";
 import { detectEvents, isMissedEvent } from "@/lib/change-engine";
+import { evaluateThesis, resolveState } from "@/lib/thesis-engine";
 import type { Bar, Quote } from "@/lib/market/types";
 
 let passed = 0;
@@ -362,6 +363,89 @@ section("resolved events are immutable and never garbage-collected");
     explain.signal === "cross_52w_high" && explain.price === 105 && explain.level === 100
       && Object.keys(explain).length === 3,
     JSON.stringify(explain));
+}
+
+/* ------------------------------------------------------------------------- */
+section("thesis engine — creation floor, observation window, 2-of-3");
+{
+  const day = (n: number) => `2026-07-${String(n).padStart(2, "0")}`;
+  const inst = (n: number) => new Date(`${day(n)}T10:00:00.000Z`);
+  // A steadily falling series, so contradiction conditions are unambiguous.
+  const falling = Array.from({ length: 40 }, (_, i) =>
+    bar(`2026-0${i < 26 ? "7" : "8"}-${String((i % 26) + 1).padStart(2, "0")}`, 100 - i * 1.5, 5000));
+  const flatBench = falling.map((b) => ({ ...b, close: 1000, adjClose: 1000 }));
+
+  const base = {
+    dailyBars: falling, benchmarkBars: flatBench, observations: [],
+    anomalies: [], beta: 1, lastAcknowledgedAt: null, priorEvents: [],
+  };
+
+  // --- (e) creation floor ---------------------------------------------------
+  const rangeParams = { low: 94, high: 96, context: { realizedVolAtCreation: 0.01, gapAtCreation: 2 } };
+  const obsBefore = [{ at: new Date("2026-07-02T05:00:00Z"), price: 95 }];
+  const obsAfter = [{ at: new Date("2026-07-20T05:00:00Z"), price: 95 }];
+
+  const firedOnHistory = evaluateThesis({
+    ...base, type: "price_range", params: rangeParams,
+    createdAt: new Date("2026-07-10T00:00:00Z"), observations: obsBefore,
+  }).filter((v) => v.kind === "triggered");
+  check("creation floor: a range hit BEFORE the thesis existed does not fire",
+    firedOnHistory.length === 0, `${firedOnHistory.length} triggers`);
+
+  const firedAfter = evaluateThesis({
+    ...base, type: "price_range", params: rangeParams,
+    createdAt: new Date("2026-07-10T00:00:00Z"), observations: obsAfter,
+  }).filter((v) => v.kind === "triggered");
+  check("creation floor: the same hit AFTER creation does fire", firedAfter.length === 1);
+
+  // --- (f) minimum observation window --------------------------------------
+  const justCreated = evaluateThesis({
+    ...base, type: "momentum_up", params: {},
+    createdAt: inst(38),   // hours before the series ends
+  }).filter((v) => v.kind === "contradicted");
+  check("observation window: a thesis minutes old cannot be contradicted",
+    justCreated.length === 0, `${justCreated.length}`);
+
+  const matured = evaluateThesis({
+    ...base, type: "momentum_up", params: {}, createdAt: new Date("2026-07-01T00:00:00Z"),
+  }).filter((v) => v.kind === "contradicted");
+  check("observation window: a matured thesis can be contradicted", matured.length >= 1);
+
+  const acknowledgedJustNow = evaluateThesis({
+    ...base, type: "momentum_up", params: {},
+    createdAt: new Date("2026-07-01T00:00:00Z"),
+    lastAcknowledgedAt: falling.length ? inst(38) : null,
+  }).filter((v) => v.kind === "contradicted");
+  check("acknowledgement restarts the observation window",
+    acknowledgedJustNow.length === 0, `${acknowledgedJustNow.length}`);
+
+  // --- (c) two of three, and latching --------------------------------------
+  check("contradiction fires at most once until acknowledged", matured.length === 1, `${matured.length}`);
+  check("the verdict records which conditions fired",
+    matured[0].conditionsMet.length >= 2, matured[0].conditionsMet.join(", "));
+  check("evidence records how many were required",
+    (matured[0].evidence as Record<string, unknown>).conditions_required === 2);
+  check("evidence records the persistence that confirmed it",
+    typeof (matured[0].evidence as Record<string, unknown>).sustained_for_sessions === "number");
+
+  // A rising series must not contradict an up-momentum thesis at all.
+  const rising = Array.from({ length: 40 }, (_, i) =>
+    bar(`2026-0${i < 26 ? "7" : "8"}-${String((i % 26) + 1).padStart(2, "0")}`, 100 + i * 1.5, 5000));
+  const noFalseFire = evaluateThesis({
+    ...base, dailyBars: rising, benchmarkBars: flatBench,
+    type: "momentum_up", params: {}, createdAt: new Date("2026-07-01T00:00:00Z"),
+  }).filter((v) => v.kind === "contradicted");
+  check("a thesis that is still holding is never contradicted", noFalseFire.length === 0, `${noFalseFire.length}`);
+
+  // --- lifecycle ------------------------------------------------------------
+  check("a contradicted momentum thesis resolves to CONTRADICTED",
+    resolveState("momentum_up", matured, null) === "CONTRADICTED");
+  check("acknowledgement after the fact clears it back to STILL_VALID",
+    resolveState("momentum_up", matured, new Date("2026-09-01T00:00:00Z")) === "STILL_VALID");
+  check("a triggered price_range resolves to TRIGGERED",
+    resolveState("price_range", firedAfter, null) === "TRIGGERED");
+  check("a `none` thesis produces no verdicts at all",
+    evaluateThesis({ ...base, type: "none", params: {}, createdAt: new Date("2026-07-01T00:00:00Z") }).length === 0);
 }
 
 await reset();

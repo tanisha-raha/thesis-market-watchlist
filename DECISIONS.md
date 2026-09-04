@@ -458,3 +458,88 @@ of 100". A reviewer asking where a number came from must always get a real answe
 at a particular moment; recomputing it later against drifted statistics would
 produce evidence for a claim we are no longer making, and the mismatch is exactly
 what a careful reader would catch.
+
+---
+
+## 2026-09-04 — The thesis rules were calibrated against seeded history, not just tested
+
+**Why this section exists.** Every rule below passed its unit tests from the first
+run. The tests were not the problem. Run across 60 days of real history the same
+rules contradicted 92–100% of symbols, which means a user would be told their
+reasoning had failed on almost every stock they watched — indistinguishable from
+telling them nothing. Correctness and calibration are different properties and only
+one of them is visible to a test suite.
+
+**Measured before any tuning**, all six types, 50 symbols, 60 days:
+
+| type | triggered | contradicted | contradictions/symbol |
+|---|---|---|---|
+| price_range | 80% | 22% | 1.76 |
+| breakout | 50% | 96% | 17.60 |
+| momentum_up | — | 96% | 20.18 |
+| momentum_down | — | 100% | 22.82 |
+| volatility_watch | 100% | — | — |
+| volume_expansion | 62% | 100% | 6.66 |
+
+Three separate defects, none of which a test would have caught.
+
+**1. The cooldown never fired.** Daily sessions are timestamped at the NSE close, so
+consecutive sessions sit *exactly* 24 hours apart — precisely on the cooldown
+boundary, which the comparison treated as expired. Seventeen to twenty-two
+near-identical contradictions per symbol.
+
+The fix is not a bigger constant. A contradiction is a **state, not a recurring
+event**: the brief says a contradicted thesis stays contradicted until acknowledged,
+so the engine now emits at most one and stops. Acknowledgement resets the evaluation.
+
+**2. The conditions were not independent.** The brief asks for two of three
+*independent* conditions. Taken literally, "20-day return negative" and "price below
+the 20-day moving average" are very nearly the same measurement, so two-of-three
+quietly collapsed to one-of-two. A return negative by 0.1% is not evidence that
+someone's reasoning failed; it is rounding.
+
+Each directional condition now has to clear a noise floor expressed in the symbol's
+own 20-day move (σ₂₀ = daily realized volatility × √20), so it means the same thing
+for a utility as for a small-cap. The floor was chosen by sweeping it, not picked:
+
+| floor | breakout | momentum_up | momentum_down |
+|---|---|---|---|
+| 0σ | 90% | 92% | 79% |
+| 0.25σ | 84% | 92% | 64% |
+| 0.5σ | 66% | 72% | 57% |
+| 0.75σ | 52% | 64% | 50% |
+| **1.0σ** | **34%** | **42%** | **43%** |
+
+**3. Contradiction had no persistence requirement.** Any stock spends *some* day
+below its moving average. The conditions must now hold for three consecutive
+sessions, and the verdict is dated to the session the run began — that is when the
+thesis actually stopped holding; the following sessions are what make us confident
+it was not a wobble. The brief's principle is that one noisy signal must never fire a
+contradiction; requiring independent conditions applies that across signals, and
+requiring persistence applies the same idea across time.
+
+**Also corrected: the calibration itself was unfair.** Momentum theses were being
+instantiated on all 50 symbols including ones already falling. No user writes
+"tracking momentum" on a stock in a downtrend, so the rule was being measured against
+a prior nobody has. Momentum theses are now only instantiated where the premise held
+at creation (36 symbols up, 14 down). This changed the numbers barely at all — 94% to
+92% — which is itself the useful result: it ruled out the easy explanation and forced
+the real diagnosis.
+
+**After all three fixes:**
+
+| type | triggered | contradicted | contradictions/symbol |
+|---|---|---|---|
+| price_range | 80% | 18% | 0.18 |
+| breakout | 50% | 34% | 0.34 |
+| momentum_up | maintenance | 42% | 0.42 |
+| momentum_down | maintenance | 43% | 0.43 |
+| volatility_watch | 100% | n/a | — |
+| volume_expansion | 62% | 56% | 0.56 |
+
+`volatility_watch` triggering on every symbol is intended: the user asked to be told
+about unusual moves, and a 2σ move occurring at least once in two months is the
+expected case, not a defect. Momentum types have no trigger by design — they are
+maintenance theses whose news is that they are still valid.
+
+`npm run calibrate` reproduces the table; `FLOOR=n` sweeps the noise floor.

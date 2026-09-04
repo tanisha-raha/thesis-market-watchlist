@@ -250,3 +250,76 @@ export const changeEvents = pgTable("change_events", {
   // The digest asks "what is still unresolved" and "what resolved while I was away".
   index("change_events_resolved_idx").on(t.resolvedAt),
 ]);
+
+/**
+ * Why a user is watching a symbol.
+ *
+ * The central design decision of the product: a thesis is STRUCTURED and
+ * MACHINE-VERIFIABLE, never free text we interpret. `type` and `paramsJson`
+ * drive deterministic evaluation against market data. `note` is displayed back
+ * to the user verbatim and is never parsed — it is theirs, not an input.
+ *
+ * We never ask a language model whether someone's reasoning still holds. Data
+ * decides.
+ *
+ * `paramsJson` also carries a creation-time snapshot (`context`), because
+ * several contradiction rules are relative to conditions when the thesis was
+ * written — "realized volatility above twice its level at creation" is
+ * meaningless without recording that level at the time.
+ */
+export const theses = pgTable("theses", {
+  id: serial("id").primaryKey(),
+  watchlistItemId: integer("watchlist_item_id").notNull()
+    .references(() => watchlistItems.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),               // price_range | breakout | momentum_up | ...
+  paramsJson: jsonb("params_json").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+  state: text("state").notNull().default("WATCHING"),  // WATCHING | TRIGGERED | CONTRADICTED | STILL_VALID
+  lastAcknowledgedAt: timestamp("last_acknowledged_at", { withTimezone: true }),
+
+  /** Set when a corporate action rewrote the user's numbers. Surfaced, never silent. */
+  paramsAdjustedAt: timestamp("params_adjusted_at", { withTimezone: true }),
+}, (t) => [
+  // One live thesis per watchlist item keeps the model comprehensible.
+  uniqueIndex("theses_watchlist_item_idx").on(t.watchlistItemId),
+]);
+
+/**
+ * What happened to a thesis. Append-only, same discipline as change_events.
+ *
+ * `conditionsMetJson` records WHICH of the 2-of-3 conditions fired and
+ * `evidenceJson` the actual inputs at that moment, so the evidence panel shows
+ * the real reasoning rather than a recomputation that would drift out of step
+ * with the claim it is supposed to justify.
+ */
+export const thesisEvents = pgTable("thesis_events", {
+  id: serial("id").primaryKey(),
+  thesisId: integer("thesis_id").notNull().references(() => theses.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),               // triggered | contradicted | missed
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  conditionsMetJson: jsonb("conditions_met_json").notNull(),
+  evidenceJson: jsonb("evidence_json").notNull(),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("thesis_events_identity_idx").on(t.thesisId, t.kind, t.occurredAt),
+  index("thesis_events_thesis_idx").on(t.thesisId, t.occurredAt),
+]);
+
+/**
+ * Per-(user, symbol) watermark. Deliberately not one global timestamp: opening
+ * one detail page must not mark everything else as seen.
+ *
+ * `lastSeenPriceAdj` is the user's personal baseline and must be adjusted
+ * forward on a split, or it silently becomes wrong by the split factor.
+ */
+export const userSymbolReadState = pgTable("user_symbol_read_state", {
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  symbol: text("symbol").notNull().references(() => symbols.symbol, { onDelete: "cascade" }),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+  lastSeenPriceAdj: numeric("last_seen_price_adj", { precision: 18, scale: 4 }),
+  lastSeenEventId: integer("last_seen_event_id"),
+  priceAdjustedAt: timestamp("price_adjusted_at", { withTimezone: true }),
+}, (t) => [uniqueIndex("read_state_user_symbol_idx").on(t.userId, t.symbol)]);

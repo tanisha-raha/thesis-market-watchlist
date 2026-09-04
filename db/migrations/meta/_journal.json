@@ -36,6 +36,13 @@
       "when": 1788521879663,
       "tag": "0004_price_bars_open",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788522618860,
+      "tag": "0005_theses",
+      "breakpoints": true
     }
   ]
 }
