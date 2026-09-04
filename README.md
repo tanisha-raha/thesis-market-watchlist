@@ -17,8 +17,8 @@ While you were away
   ○ 4 unchanged
 ```
 
-*That digest is where the product is going — see **Status** below for what is built
-today.* Three kinds of news a conventional watchlist cannot express:
+The digest is the product's home surface. Three kinds of news a conventional
+watchlist cannot express:
 
 - **Condition met** — the thing you were waiting for happened.
 - **Thesis contradicted** — the reasoning behind why you were watching no longer holds.
@@ -47,17 +47,17 @@ Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
 - Seeded history: 60 days of 5-minute bars and 2 years of daily bars for 51 symbols,
   fetched locally and committed, so the deployed app never cold-backfills
 
-**In progress**
+**Also built**
 
-- *Change engine* — anomaly detection and scoring on top of `symbol_stats`, with
-  cooldown, hysteresis and transient-event resolution
-- *Thesis engine* — capturing why you are watching, then evaluating triggers and
-  contradictions deterministically against market data
-- *Digest* — the "While you were away" surface, evidence panels, and the
-  missed-event replay
+- *Change engine* — deterministic anomaly detection and scoring on top of
+  `symbol_stats`, with cooldown, hysteresis and transient-event resolution
+- *Thesis engine* — optional structured reasons for watching, evaluated against
+  stored market evidence without an AI dependency
+- *Digest and symbol detail* — a "While you were away" view, evidence panels,
+  missed-event replay, and a traceable per-symbol view
 
-The data model for all three is in place and populated; see [DECISIONS.md](DECISIONS.md)
-for the reasoning and the recorded cut list.
+See [DECISIONS.md](DECISIONS.md) for the reasoning, calibration record, and
+intentional cut list.
 
 ---
 
@@ -102,7 +102,7 @@ docker run -d --name thesis-pg \
 |---|---|
 | `npm run dev` / `build` / `start` | Next.js |
 | `npm run db:migrate` | Apply migrations |
-| `npm test` | The five integration tests (needs `DATABASE_URL`) |
+| `npm test` | Database-backed and deterministic regression suite (needs `DATABASE_URL`) |
 | `npm run smoke` | End-to-end against a real database and the live feed |
 | `npm run browser-check [url]` | Drives the UI in a real browser |
 | `npm run validate:source` | Re-runs the Phase 0 data-source validation |
