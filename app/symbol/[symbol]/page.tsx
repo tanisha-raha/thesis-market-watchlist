@@ -19,6 +19,8 @@ import { SymbolChart } from "@/components/symbol-chart";
 import { AddToWatchlistButton } from "@/components/workspace-controls";
 import { ThesisReplay } from "@/components/thesis-replay";
 import { getThesisReplay } from "@/lib/thesis-replay-server";
+import { MarketPattern } from "@/components/market-pattern";
+import { getLatestAnomaly } from "@/lib/ml/anomaly-server";
 
 /**
  * Company detail — for any supported security, watched or not.
@@ -49,13 +51,15 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
       .where(eq(watchlistItems.id, company.watchlistItemId!)).limit(1)
     : [undefined];
 
-  const [events, verdicts, rows, replay] = await Promise.all([
+  const [events, verdicts, rows, replay, anomaly] = await Promise.all([
     db.select().from(changeEvents).where(eq(changeEvents.symbol, symbol)).orderBy(desc(changeEvents.occurredAt)).limit(12),
     item?.thesisId
       ? db.select().from(thesisEvents).where(eq(thesisEvents.thesisId, item.thesisId)).orderBy(desc(thesisEvents.occurredAt)).limit(6)
       : Promise.resolve([]),
     getWatchlist(user.id),
     company.watched ? getThesisReplay(user.id, symbol) : Promise.resolve(null),
+    // Read-only: the evidence recorded when the model ran, never a fit per render.
+    getLatestAnomaly(symbol).catch(() => null),
   ]);
 
   const money = (value: number | null) => formatPrice(value, security.currency);
@@ -123,6 +127,9 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
               icon="watchlist"><AddToWatchlistButton symbol={symbol} label="Add to Watchlist" /></EmptyState></div>
           </DashboardCard>}
     </div>
+
+    {/* Secondary evidence, and placed after the thesis surfaces for that reason. */}
+    <MarketPattern anomaly={anomaly} timeZone={security.timeZone} monitored={company.historySource === "stored"} />
 
     {company.watched && <ThesisReplay result={replay} demo={demo} exchange={security.exchange} />}
 

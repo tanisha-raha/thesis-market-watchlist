@@ -475,6 +475,9 @@ html[data-theme="light"] .app-sidebar::before { background: url('/images/thesis-
 .condition-cell { font-size: 11px; color: var(--color-muted); white-space: normal; min-width: 130px; max-width: 190px; }
 .symbol-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .symbol-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+/* The anomaly badge sits beside the timestamp: present, never shouting. */
+.card-tags { display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap; justify-content: flex-end; }
+.unusual-badge { font-size: 9px; padding: 3px 7px; letter-spacing: .07em; }
 .symbol-actions .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; }
 /* Range tabs: quiet until chosen, so the chart stays the loudest thing here. */
 .chart-ranges { display: flex; gap: 6px; margin-bottom: 4px; }

@@ -5,6 +5,7 @@ import { watchlistItems } from "@/db/schema";
 import { ingestQuotes, refreshSymbolStats, detectCorporateActions } from "@/lib/ingestion";
 import { runDetection } from "@/lib/detection";
 import { applyCorporateActions, runThesisEvaluation } from "@/lib/thesis";
+import { runAnomalyDetection } from "@/lib/ml/anomaly-server";
 import { liveProvider } from "@/lib/market/live";
 import { FULL_UNIVERSE } from "@/lib/universe";
 
@@ -26,6 +27,11 @@ import { FULL_UNIVERSE } from "@/lib/universe";
  * `?stats=1` additionally recomputes `symbol_stats` and re-runs corporate-action
  * detection. Those read the full stored history and are meant for a slower
  * cadence (once a day, after close) rather than every poll.
+ *
+ * The optional anomaly layer runs LAST, after every deterministic write has
+ * committed, and inside its own guard. It is the only part of this route allowed
+ * to fail without failing the request: nothing downstream reads its output, so a
+ * model that cannot fit costs the run an opinion and nothing else.
  */
 
 export const dynamic = "force-dynamic";
@@ -96,6 +102,13 @@ export async function GET(request: Request) {
       body.adjustments = await applyCorporateActions();
       body.detection = await runDetection(targets);
       body.theses = await runThesisEvaluation();
+    }
+
+    // Optional, last, and unable to break anything above it.
+    try {
+      body.anomaly = await runAnomalyDetection(targets);
+    } catch (error) {
+      body.anomaly = { ok: false, error: error instanceof Error ? error.message.slice(0, 200) : "anomaly layer unavailable" };
     }
 
     return NextResponse.json(body);

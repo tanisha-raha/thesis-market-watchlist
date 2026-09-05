@@ -8,6 +8,7 @@ import {
 import { lastCommittedBatchAt } from "@/lib/ingestion";
 import { deriveTradingCalendar } from "@/lib/market/calendar";
 import { describeSecurity, formatMoney, type Security } from "@/lib/securities";
+import { getUnusualSessions } from "@/lib/ml/anomaly-server";
 import { exchangeDate, istDate } from "@/lib/time";
 import type { Bar } from "@/lib/market/types";
 
@@ -64,6 +65,8 @@ export type EvidenceEntry = { label: string; value: string; basis?: string };
 
 export type ContradictionCard = {
   kind: "contradiction";
+  /** The optional anomaly layer flagged this session. Context only, never a cause. */
+  unusualPattern?: boolean;
   thesisId: number;
   symbol: string;
   name: string | null;
@@ -81,6 +84,8 @@ export type ContradictionCard = {
 
 export type TriggerCard = {
   kind: "trigger";
+  /** The optional anomaly layer flagged this session. Context only, never a cause. */
+  unusualPattern?: boolean;
   thesisId: number;
   symbol: string;
   name: string | null;
@@ -94,6 +99,8 @@ export type TriggerCard = {
 
 export type MissedCard = {
   kind: "missed";
+  /** The optional anomaly layer flagged this session. Context only, never a cause. */
+  unusualPattern?: boolean;
   symbol: string;
   name: string | null;
   security: Security;
@@ -112,6 +119,8 @@ export type MissedCard = {
 
 export type AnomalyCard = {
   kind: "anomaly";
+  /** The optional anomaly layer flagged this session. Context only, never a cause. */
+  unusualPattern?: boolean;
   symbol: string;
   name: string | null;
   security: Security;
@@ -371,6 +380,13 @@ export async function getDigest(userId: number): Promise<Digest> {
   // not an input to any verdict. Nothing downstream branches on it, so an
   // Indian-holiday/US-session edge date shifts a count by one rather than
   // changing what the digest reports.
+  // Secondary evidence, fetched last and allowed to fail: the digest is a
+  // deterministic product and must render identically without it.
+  const unusual = await getUnusualSessions(symbolList, istDate(new Date(awayFrom.getTime() - 3 * 864e5)))
+    .catch(() => new Map<string, import("@/lib/ml/anomaly-server").StoredAnomaly>());
+  const flagged = (symbol: string, at: Date, security: Security) =>
+    unusual.has(`${symbol}|${exchangeDate(at, security.timeZone)}`) || undefined;
+
   const calendar = deriveTradingCalendar([...barsBySymbol.values()]);
   const fromDate = istDate(awayFrom);
   const untilDate = istDate(cutoff);
@@ -426,6 +442,7 @@ export async function getDigest(userId: number): Promise<Digest> {
           detail: conditionDetail(c),
         })),
         evidence: evidenceFrom(evidence, security.currency),
+        unusualPattern: flagged(item.symbol, ev.occurredAt, security),
       });
     } else if (ev.kind === "triggered") {
       triggers.push({
@@ -439,6 +456,7 @@ export async function getDigest(userId: number): Promise<Digest> {
         note: item.thesisNote,
         occurredAt: ev.occurredAt,
         evidence: evidenceFrom(evidence, security.currency),
+        unusualPattern: flagged(item.symbol, ev.occurredAt, security),
       });
     }
   }
@@ -504,6 +522,7 @@ export async function getDigest(userId: number): Promise<Digest> {
         dailyBlindSpot: dailyBlindSpot(ev.signalType, explain, close),
         peak: typeof explain.price === "number" ? explain.price : null,
         evidence: evidenceFrom(explain, security.currency),
+        unusualPattern: flagged(ev.symbol, ev.occurredAt, security),
       });
       noteworthy.add(ev.symbol);
       continue;
@@ -522,6 +541,7 @@ export async function getDigest(userId: number): Promise<Digest> {
         occurredAt: ev.occurredAt,
         resolvedAt: ev.resolvedAt,
         evidence: evidenceFrom(explain, security.currency),
+        unusualPattern: flagged(ev.symbol, ev.occurredAt, security),
       });
       noteworthy.add(ev.symbol);
     }

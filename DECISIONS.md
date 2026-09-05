@@ -815,3 +815,103 @@ against the security's market index, which comes from provider metadata, which
 arrives with a quote poll — so `refreshSymbolStats` run against freshly seeded
 symbols produced null betas for the US names. Re-running it after the first poll
 fixed them, and the deployed route already polls before it recomputes.
+
+---
+
+## The anomaly layer (unsupervised ML, kept secondary)
+
+**Why add a model at all.** The deterministic engine is good at known conditions
+and cannot express one thing: a day that is unremarkable in every individual
+dimension and unusual as a whole. Every existing signal is univariate — a z-score,
+a volume ratio, a level crossing — so a modest move, on modest volume, against the
+market, away from the moving average, on a day that gapped, passes every threshold
+individually and is never surfaced. That gap is a real product gap, and it is the
+only reason this layer exists.
+
+**Isolation Forest, written out rather than imported.** It is the right model for
+the job — it isolates points that separate easily under random partitioning, which
+is a genuinely multivariate notion of "unusual" — and it is ~120 lines of
+well-specified algorithm. Adding Python for it would mean a second deployment, a
+network boundary and an operational failure mode in an app whose central claim is
+that the core keeps working when optional things fail; the maintained JS ports we
+looked at pull in heavier numeric stacks than the file replaces. So: no new
+dependency, no new service, no new runtime. Every random choice is seeded, so the
+same data produces the same trees, the same score and the same stored evidence —
+which is what makes a stored anomaly reproducible and repeated detection
+idempotent.
+
+**Not "z-scores with a new name".** The deterministic engine already does
+thresholding, and calling that ML would be dishonest. What this adds is different
+in kind: an ensemble fitted on the joint distribution of eight features, scoring a
+point by how easily it isolates from the rest. The test suite pins the distinction
+— the flagged synthetic session is one whose individual signals are large *in
+combination*, and the same series without it is classified NORMAL.
+
+**Per security, never pooled.** A model fitted across many securities would need
+cross-sectional normalisation to mean anything, and "unusual" would then mean
+"unlike other companies" rather than "unlike itself". Each security is fitted on
+its own last 250 feature rows. That also removes the need for scaling: Isolation
+Forest splits on observed feature ranges within a node, so it is invariant to
+units — and because nothing is standardised, there is no fitted scaler that could
+carry future statistics backwards.
+
+**Leakage is prevented structurally, not by discipline.** Every rolling input for
+session i comes from sessions before i; the only values of session i in its own
+row are what actually happened that day. The evaluated row is excluded from the
+training set, the threshold comes from the training rows' own scores, and
+`asOfDate` truncates the series so evaluating an old session cannot see later
+bars. The test asserts identical output for the same date with and without future
+data present.
+
+**Missing means missing.** A feature that cannot be computed is null, never zero:
+zero is a legitimate value for a return and for a distance from a moving average,
+so imputing it would insert a fabricated flat day into the training set. A feature
+missing for most of a security's history is dropped as a COLUMN for that security
+— a column that only exists for half the window would make the model's notion of
+"unusual" change halfway through it — and a security with no benchmark simply
+trains on seven features instead of eight.
+
+**Categorical output, and no number on screen.** The raw score is stored for
+reproducibility and never rendered. "0.68" beside a company name reads as a rating
+whatever the caption says, and an "87/100" is the exact failure mode this product
+exists to argue against. The UI says UNUSUAL PATTERN or TYPICAL.
+
+**Explainability is stated, not invented.** Isolation Forest provides no
+per-feature attribution. So the card makes exactly one model claim — this
+combination was unusual — and separately shows the evidence the model saw, in real
+units, with a sentence saying those signals are context and not causal
+attributions. Claiming "unusual because volume rose" would be inventing an
+explanation the model never produced.
+
+**Where it runs, and what its failure costs.** Once per security per session, at
+the end of the scheduled ingestion run, after every deterministic write has
+committed: O(unique symbols), ~26ms per security, 58 securities in 1.5s, and a
+second run in the same session skips all of them. Nothing is per user;
+personalisation stays in the thesis layer. Each security is evaluated in its own
+try/catch, the whole run is wrapped again in the route, and no deterministic
+module imports `lib/ml` — a fact the test suite asserts by reading the sources.
+
+**Storage is immutable and mode-scoped.** `market_anomalies` (migration 0009,
+additive, referenced by nothing) records the status, raw score, threshold, model
+version, feature snapshot and training-window metadata, with a unique index on
+(symbol, session, model version, data mode) as the idempotency key. Live and DEMO
+REPLAY evaluations are separate rows and reads filter on mode, so a demo run can
+never overwrite live evidence or be shown as live. Recomputing an old evaluation
+against a restated series would silently change the evidence for a claim already
+made, so rows are written once and never updated — the same discipline as
+`change_events`.
+
+**What it may not do.** It cannot contradict a thesis: contradiction still
+requires the deterministic 2-of-3 rule, and the thesis engine has no access to
+this layer. It cannot create a change event. It cannot appear in Ask THESIS as a
+prediction — the assistant explains the stored evidence and says plainly that the
+signals are inputs rather than causes. And it is not Thesis Replay: replay asks
+how a user's own condition behaved against history, while this asks whether a
+multidimensional market state was unusual. Different questions, different
+surfaces.
+
+**Calibration on real data.** Across the 58-security universe the layer flagged
+one session; over the last 120 NVDA sessions it flagged exactly one — 2026-08-27,
++8.7% on 2.7× volume with a 6.3% gap and a break above the 20-day range. Roughly
+one session in a hundred, which is what a 99th-percentile threshold should
+produce, and few enough that a flag still means something.

@@ -11,7 +11,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  changeEvents, corporateActions, ingestionBatches, priceBars, quoteObservations,
+  changeEvents, corporateActions, ingestionBatches, marketAnomalies, priceBars, quoteObservations,
   quotes, symbols, symbolStats, theses, userSymbolReadState, users, watchlistItems,
 } from "@/db/schema";
 import { ingestQuotes, ingestHistory, refreshSymbolStats } from "@/lib/ingestion";
@@ -37,6 +37,12 @@ import { describeSecurity, formatMoney, isSupportedExchangeCode, marketLine, ses
 import { loadSecurities } from "@/lib/securities-server";
 import { availableRanges, defaultRange, rangeSeries } from "@/lib/chart-ranges";
 import { normalizeSymbol } from "@/lib/company";
+import { readFileSync } from "node:fs";
+import { MIN_TRAINING_ROWS, MODEL_VERSION, anomalyEvidence, evaluateAnomaly } from "@/lib/ml/anomaly";
+import { buildFeatureRows } from "@/lib/ml/features";
+import { fitIsolationForest } from "@/lib/ml/isolation-forest";
+import { getLatestAnomaly, getUnusualSessions, runAnomalyDetection } from "@/lib/ml/anomaly-server";
+import { runDetection } from "@/lib/detection";
 import { thesisCondition } from "@/lib/thesis-display";
 import { searchResultsFrom, toQuote, type RawSearchQuote } from "@/lib/market/live";
 import { marketStatusFrom, marketStatusLine, REGION_PRIMARY_INDEX } from "@/lib/market-brief";
@@ -65,6 +71,7 @@ const bar = (date: string, close: number, volume = 1000): Bar => ({
 
 /** Removes every trace of the fixture symbol so the suite is rerunnable. */
 async function reset() {
+  await db.delete(marketAnomalies).where(eq(marketAnomalies.symbol, SYM));
   await db.delete(changeEvents).where(eq(changeEvents.symbol, SYM));
   await db.delete(quoteObservations).where(eq(quoteObservations.symbol, SYM));
   await db.delete(priceBars).where(eq(priceBars.symbol, SYM));
@@ -134,6 +141,7 @@ section("Ask THESIS — bounded explanation layer");
   await db.insert(changeEvents).values({ symbol: SYM, signalType: "large_move", window: "1d", magnitude: "1", score: "1", occurredAt: new Date(), detectedAt: new Date(), ingestionBatchId: presentationBatch.id, explainJson: { price: 100 } });
   check("featured evidence remains available outside the unread digest window", (await getStoredEvidence(firstUser.id, SYM)).entries.length > 0);
   check("featured evidence denies symbols outside watchlist membership", (await getStoredEvidence(secondUser.id, SYM)).entries.length === 0);
+  await db.delete(marketAnomalies).where(eq(marketAnomalies.symbol, SYM));
   await db.delete(changeEvents).where(eq(changeEvents.symbol, SYM));
   await db.delete(ingestionBatches).where(eq(ingestionBatches.id, presentationBatch.id));
   await db.delete(users).where(inArray(users.id, [firstUser.id, secondUser.id]));
@@ -860,6 +868,214 @@ section("Company lookup — discovery before you commit to watching");
     normalizeSymbol("blk") === "BLK" && normalizeSymbol("infy.ns") === "INFY.NS" && normalizeSymbol("M&M.NS") === "M&M.NS"
     && normalizeSymbol("../etc/passwd") === null && normalizeSymbol("") === null && normalizeSymbol("A".repeat(40)) === null);
 }
+
+
+/* ------------------------------------------------------------------------- */
+section("Anomaly layer — unsupervised, secondary, and unable to break anything");
+{
+  /* --- deterministic synthetic history ------------------------------------ */
+  // A seeded generator, not Math.random: an ML test that passes intermittently
+  // is worse than no test.
+  const rng = (seed: number) => () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const sessionDate = (i: number) => new Date(Date.UTC(2026, 0, 1) + i * 864e5).toISOString().slice(0, 10);
+  function calmSeries(count: number, seed = 7): Bar[] {
+    const next = rng(seed);
+    const bars: Bar[] = [];
+    let close = 100;
+    for (let i = 0; i < count; i++) {
+      const move = (next() - 0.5) * 0.012;                 // ±0.6% days
+      const open = close * (1 + (next() - 0.5) * 0.002);
+      close = close * (1 + move);
+      bars.push({ date: sessionDate(i), open, high: null, low: null, close, volume: Math.round(1_000_000 * (0.9 + next() * 0.2)), adjClose: close });
+    }
+    return bars;
+  }
+  const benchmark = calmSeries(200, 99).map((b) => ({ ...b, volume: 1 }));
+
+  /* 1. an unusual combination is detected ---------------------------------- */
+  const calm = calmSeries(200);
+  const previous = calm.at(-1)!;
+  const shock: Bar = {
+    date: sessionDate(200),
+    open: previous.close! * 1.05,                          // gapped open
+    high: null, low: null,
+    close: previous.close! * 1.09,                         // far outside its usual range
+    volume: previous.volume! * 6,                          // on six times the volume
+    adjClose: previous.close! * 1.09,
+  };
+  const unusual = evaluateAnomaly({ bars: [...calm, shock], benchmarkBars: benchmark });
+  check("an unusual combination of signals is classified UNUSUAL",
+    unusual.status === "UNUSUAL" && unusual.score! > unusual.threshold!,
+    `score ${unusual.score?.toFixed(3)} > threshold ${unusual.threshold?.toFixed(3)}`);
+  check("the stored evidence is the model's actual input, in real units",
+    unusual.features.daily_return != null && unusual.features.log_relative_volume != null
+    && anomalyEvidence(unusual.features).some((e) => e.label === "Relative volume" && e.value.endsWith("×")));
+
+  /* 2. an ordinary session is not surfaced --------------------------------- */
+  const ordinary = evaluateAnomaly({ bars: calm, benchmarkBars: benchmark });
+  check("an ordinary session is classified NORMAL, not flagged", ordinary.status === "NORMAL", `score ${ordinary.score?.toFixed(3)}`);
+  const flaggedShare = calm.slice(-40).map((bar) => evaluateAnomaly({ bars: calm, benchmarkBars: benchmark, asOfDate: bar.date }))
+    .filter((r) => r.status === "UNUSUAL").length;
+  check("ordinary history is not mostly flagged — the threshold is calibrated to the security", flaggedShare <= 4, `${flaggedShare}/40 flagged`);
+
+  /* 3. insufficient history ------------------------------------------------ */
+  check("too little history returns INSUFFICIENT_HISTORY rather than a guess",
+    evaluateAnomaly({ bars: calm.slice(0, 40) }).status === "INSUFFICIENT_HISTORY"
+    && evaluateAnomaly({ bars: [] }).status === "INSUFFICIENT_HISTORY"
+    && evaluateAnomaly({ bars: calm.slice(0, 40) }).score === null);
+
+  /* 4. missing features are dropped, never imputed -------------------------- */
+  const noOpens = calm.map((bar) => ({ ...bar, open: null }));
+  const withoutGap = evaluateAnomaly({ bars: noOpens, benchmarkBars: benchmark });
+  check("a feature the data cannot support is dropped as a column, not filled with zero",
+    !withoutGap.columns.includes("gap_return") && withoutGap.features.gap_return === undefined
+    && withoutGap.status === "NORMAL" && withoutGap.window.trainingRows > MIN_TRAINING_ROWS);
+  check("a security with no benchmark still evaluates on its own features",
+    !evaluateAnomaly({ bars: calm }).columns.includes("benchmark_residual")
+    && evaluateAnomaly({ bars: calm }).status === "NORMAL");
+
+  /* 5. NaN and Infinity ----------------------------------------------------- */
+  const poisoned = calm.map((bar, i) => i === 150 ? { ...bar, close: NaN, adjClose: NaN } : i === 151 ? { ...bar, volume: Infinity } : bar);
+  const survived = evaluateAnomaly({ bars: poisoned, benchmarkBars: benchmark });
+  check("non-finite bars are treated as missing observations, never as numbers",
+    (survived.status === "NORMAL" || survived.status === "UNUSUAL") && Number.isFinite(survived.score!));
+  let forestRefused = false;
+  try { fitIsolationForest([[1, 2], [NaN, 3]]); } catch { forestRefused = true; }
+  check("the model refuses a non-finite feature matrix outright", forestRefused);
+  check("zero and negative prices cannot enter the feature pipeline",
+    buildFeatureRows(calm.map((b, i) => i === 100 ? { ...b, close: 0, adjClose: 0 } : b)).every((row) =>
+      Object.values(row.values).every((v) => Number.isFinite(v))));
+
+  /* 6. no future-data leakage ---------------------------------------------- */
+  const past = calm.at(-30)!.date;
+  const withFuture = evaluateAnomaly({ bars: [...calm, shock], benchmarkBars: benchmark, asOfDate: past });
+  const withoutFuture = evaluateAnomaly({ bars: calm.filter((b) => b.date <= past), benchmarkBars: benchmark.filter((b) => b.date <= past) });
+  check("evaluating a past session ignores every later observation",
+    withFuture.status === withoutFuture.status && withFuture.score === withoutFuture.score
+    && withFuture.window.through === withoutFuture.window.through,
+    `${withFuture.score?.toFixed(6)} vs ${withoutFuture.score?.toFixed(6)}`);
+  check("the evaluated session is never part of its own training window",
+    withFuture.window.through! < past && withFuture.date === past);
+  const rowsToPast = buildFeatureRows(calm, benchmark, past);
+  check("feature rows are truncated at the evaluated date", rowsToPast.at(-1)!.date === past && rowsToPast.every((r) => r.date <= past));
+
+  /* 7. corporate actions ---------------------------------------------------- */
+  // The restated (split-adjusted) series is internally consistent, so the split
+  // itself must not read as an anomaly. The unadjusted break is what would.
+  const split = calm.map((bar, i) => i >= 150 ? { ...bar, close: bar.close! / 5, adjClose: bar.adjClose! / 5, open: bar.open! / 5 } : bar);
+  const restated = calm.map((bar) => ({ ...bar, close: bar.close! / 5, adjClose: bar.adjClose! / 5, open: bar.open! / 5 }));
+  check("a fully restated series is unchanged by the restatement",
+    evaluateAnomaly({ bars: restated, benchmarkBars: benchmark, asOfDate: sessionDate(160) }).status
+    === evaluateAnomaly({ bars: calm, benchmarkBars: benchmark, asOfDate: sessionDate(160) }).status);
+  check("an unadjusted split break is what a naive series would flag",
+    evaluateAnomaly({ bars: split, benchmarkBars: benchmark, asOfDate: sessionDate(150) }).status === "UNUSUAL");
+
+  /* 8. repeatability -------------------------------------------------------- */
+  check("the same inputs always produce the same score — the model is seeded",
+    evaluateAnomaly({ bars: [...calm, shock] }).score === evaluateAnomaly({ bars: [...calm, shock] }).score);
+  check("the stored model version and configuration travel with the result",
+    unusual.modelVersion === MODEL_VERSION && unusual.config.trees > 0 && unusual.config.thresholdQuantile === 0.99);
+
+  /* 9. the model never produces advice -------------------------------------- */
+  const advice = /\b(buy|sell|hold|target price|price target|forecast|predict|expected return|recommend)\b/i;
+  check("no anomaly output contains investment-advice vocabulary",
+    anomalyEvidence(unusual.features).every((e) => !advice.test(e.label) && !advice.test(e.value) && !advice.test(e.basis ?? ""))
+    && !advice.test(unusual.status) && !advice.test(unusual.reason ?? ""));
+
+  /* 10. the deterministic engine does not depend on the model ---------------- */
+  const engineSources = ["lib/change-engine.ts", "lib/thesis-engine.ts", "lib/thesis.ts", "lib/detection.ts", "lib/stats.ts"]
+    .map((file) => readFileSync(file, "utf8"));
+  check("no deterministic engine imports the anomaly layer",
+    engineSources.every((source) => !/from ["']\.\.?\/ml\//.test(source) && !/@\/lib\/ml/.test(source)));
+  const events = detectEvents({
+    symbol: SYM, stats: { realizedVol20: 0.01, medianVolume20: 1000, ma20: 100, beta60: 1, high52w: 120, low52w: 80, high20: 110, low20: 90, sessionsUsed: 300 },
+    observations: [{ at: new Date("2026-08-10T05:00:00Z"), price: 130 }], dailyBars: [], benchmarkBars: [],
+  });
+  check("detection produces events with no anomaly layer involved at all", events.length > 0);
+  check("a thesis cannot be contradicted by the anomaly layer",
+    evaluateThesis({
+      type: "price_range", params: { low: 90, high: 110 }, createdAt: new Date("2026-01-01T00:00:00Z"),
+      lastAcknowledgedAt: null, priorEvents: [], dailyBars: [...calm, shock], benchmarkBars: benchmark,
+      observations: [], anomalies: [], beta: 1,
+    }).every((verdict) => verdict.kind !== "contradicted" || (verdict.evidence.conditions as unknown[])?.length > 0));
+}
+
+
+/* ------------------------------------------------------------------------- */
+await reset();
+section("Anomaly evidence — stored once, immutable, and never across data modes");
+{
+  // Real bars in the real table, through the real ingestion path.
+  const start = Date.now() - 200 * 864e5;
+  const rng = (seed: number) => () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const next = rng(11);
+  const fixture: Bar[] = [];
+  let close = 250;
+  for (let i = 0; i < 180; i++) {
+    const open = close * (1 + (next() - 0.5) * 0.002);
+    close = close * (1 + (next() - 0.5) * 0.012);
+    fixture.push({
+      date: new Date(start + i * 864e5).toISOString().slice(0, 10),
+      open, high: null, low: null, close, adjClose: close,
+      volume: Math.round(900_000 * (0.9 + next() * 0.2)),
+    });
+  }
+  const last = fixture.at(-1)!;
+  fixture.push({
+    date: new Date(start + 180 * 864e5).toISOString().slice(0, 10),
+    open: last.close! * 1.05, high: null, low: null,
+    close: last.close! * 1.1, adjClose: last.close! * 1.1, volume: last.volume! * 7,
+  });
+  await ingestHistory(new ReplayMarketDataProvider({ bars: { [SYM]: fixture } }), SYM, 400);
+
+  const live = await runAnomalyDetection([SYM], { dataMode: "live" });
+  check("the anomaly layer evaluates a security once per session", live.evaluated === 1 && live.failed === 0, JSON.stringify(live));
+  const stored = await getLatestAnomaly(SYM, "live");
+  check("the stored row carries everything needed to audit the decision later",
+    stored != null && stored.modelVersion === MODEL_VERSION && stored.score != null && stored.threshold != null
+    && Object.keys(stored.features).length >= 3 && (stored.window as { trainingRows?: number }).trainingRows! >= MIN_TRAINING_ROWS,
+    stored ? `${stored.status} ${stored.score?.toFixed(3)}` : "missing");
+  check("the injected multi-signal session is the one recorded as unusual", stored?.status === "UNUSUAL");
+
+  const repeat = await runAnomalyDetection([SYM], { dataMode: "live" });
+  check("re-running detection over the same session records nothing new",
+    repeat.evaluated === 0 && repeat.skipped === 1, JSON.stringify(repeat));
+
+  // Immutability: the identity index refuses a second opinion about the same day.
+  const [batch] = await db.insert(ingestionBatches).values({ status: "STARTED", requestedCount: 1, failureSummary: "anomaly-immutability" }).returning();
+  await db.insert(marketAnomalies).values({
+    symbol: SYM, tradingDate: stored!.tradingDate, occurredAt: stored!.occurredAt, status: "NORMAL",
+    score: "0.999", threshold: "0.1", modelVersion: MODEL_VERSION, dataMode: "live",
+    featuresJson: { tampered: true }, windowJson: {}, evaluatedAt: new Date(), batchId: batch.id,
+  }).onConflictDoNothing({ target: [marketAnomalies.symbol, marketAnomalies.tradingDate, marketAnomalies.modelVersion, marketAnomalies.dataMode] });
+  const after = await getLatestAnomaly(SYM, "live");
+  check("stored anomaly evidence is immutable once written",
+    after?.score === stored?.score && after?.status === stored?.status && !("tampered" in (after?.features ?? {})));
+
+  // Live and demo are separate worlds sharing one table.
+  const demo = await runAnomalyDetection([SYM], { dataMode: "demo" });
+  check("a demo run evaluates independently of the live run", demo.evaluated === 1);
+  const liveRows = await db.select().from(marketAnomalies).where(and(eq(marketAnomalies.symbol, SYM), eq(marketAnomalies.dataMode, "live")));
+  const demoRows = await db.select().from(marketAnomalies).where(and(eq(marketAnomalies.symbol, SYM), eq(marketAnomalies.dataMode, "demo")));
+  check("live and demo evaluations never overwrite one another", liveRows.length === 1 && demoRows.length === 1);
+  check("a read in live mode never returns demo evidence",
+    (await getLatestAnomaly(SYM, "live"))?.dataMode === "live" && (await getLatestAnomaly(SYM, "demo"))?.dataMode === "demo");
+  const liveUnusual = await getUnusualSessions([SYM], fixture[0].date, "live");
+  const demoUnusual = await getUnusualSessions([SYM], fixture[0].date, "demo");
+  check("digest badges are scoped to the current data mode",
+    liveUnusual.has(`${SYM}|${stored!.tradingDate}`) && demoUnusual.has(`${SYM}|${stored!.tradingDate}`)
+    && [...liveUnusual.values()].every((row) => row.dataMode === "live"));
+
+  // A symbol the model cannot evaluate costs the run an opinion, nothing else.
+  await db.insert(symbols).values({ symbol: "ANOMALY-EMPTY.NS", name: "No history" }).onConflictDoNothing();
+  const thin = await runAnomalyDetection([SYM, "ANOMALY-EMPTY.NS"], { dataMode: "live" });
+  check("a security with no usable history is skipped, not failed or fabricated",
+    thin.skipped >= 1 && thin.failed === 0 && (await getLatestAnomaly("ANOMALY-EMPTY.NS", "live")) === null);
+  const detection = await runDetection([SYM]);
+  check("deterministic detection runs normally alongside the anomaly layer", detection.batchId > 0);
+  await db.delete(symbols).where(eq(symbols.symbol, "ANOMALY-EMPTY.NS"));
+}
+await reset();
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

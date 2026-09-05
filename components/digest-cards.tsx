@@ -2,6 +2,7 @@ import Link from "next/link";
 import { formatExchangeTime, formatInZone } from "@/lib/time";
 import { formatMoney, marketLine, sessionWindow, type Security } from "@/lib/securities";
 import { Evidence, UserWords } from "@/components/evidence";
+import { UnusualPatternBadge } from "@/components/market-pattern";
 import type { AnomalyCard, ContradictionCard, MissedCard, TriggerCard } from "@/lib/digest";
 
 /**
@@ -39,7 +40,7 @@ export function Contradiction({ card }: { card: ContradictionCard }) {
     <article className="border-l-2 border-contradiction bg-contradiction-soft/40 py-4 pl-4 pr-4">
       <header className="flex items-baseline justify-between gap-4">
         <span className="label text-contradiction">Contradicted</span>
-        <time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time>
+        <span className="card-tags"><UnusualPatternBadge present={card.unusualPattern} /><time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time></span>
       </header>
 
       <div className="mt-2">
@@ -103,7 +104,7 @@ export function Trigger({ card }: { card: TriggerCard }) {
     <article className="border-l-2 border-trigger bg-trigger-soft/40 py-4 pl-4 pr-4">
       <header className="flex items-baseline justify-between gap-4">
         <span className="label text-trigger">Condition met</span>
-        <time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time>
+        <span className="card-tags"><UnusualPatternBadge present={card.unusualPattern} /><time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time></span>
       </header>
 
       <div className="mt-2">
@@ -163,7 +164,7 @@ export function Missed({ card }: { card: MissedCard }) {
     <article className="border-l-2 border-missed bg-missed-soft/40 py-4 pl-4 pr-4">
       <header className="flex items-baseline justify-between gap-4">
         <span className="label text-missed">Happened and reversed</span>
-        <span className="num text-micro text-faint">{card.durationMinutes} min</span>
+        <span className="card-tags"><UnusualPatternBadge present={card.unusualPattern} /><span className="num text-micro text-faint">{card.durationMinutes} min</span></span>
       </header>
 
       <div className="mt-2 flex items-baseline gap-2">
@@ -238,7 +239,7 @@ export function Anomaly({ card }: { card: AnomalyCard }) {
           <SymbolLink symbol={card.symbol} name={card.name} security={card.security} />
           <span className="text-meta text-muted">· {card.signalType.replace(/_/g, " ")}</span>
         </div>
-        <time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time>
+        <span className="card-tags"><UnusualPatternBadge present={card.unusualPattern} /><time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time></span>
       </header>
       {card.evidence.length > 0 && (
         <div className="mt-2">

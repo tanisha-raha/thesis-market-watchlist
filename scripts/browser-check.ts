@@ -110,6 +110,16 @@ try {
   check("exact free-text note preserved on analytical surface", true);
   await expect(page.getByRole("heading", { name: "THESIS Replay", exact: true })).toBeVisible();
   check("Replay renders observed result or explicit insufficient history", /Observed occurrences|Not enough observed history/.test(await page.locator("#thesis-replay").innerText()));
+
+  /* ---- the optional anomaly layer, kept in its place ---------------------- */
+  const pattern = page.locator(".panel", { hasText: "Market Pattern" }).first();
+  await pattern.waitFor({ timeout: 20000 });
+  const patternText = await pattern.innerText();
+  check("Market Pattern states a category, not a score", /UNUSUAL PATTERN|TYPICAL/.test(patternText) && !/\bscore\b|AI |confidence|probability|\/100/i.test(patternText));
+  check("Market Pattern separates the model's claim from the evidence it saw",
+    /context, not causal attributions/.test(patternText) && /Secondary evidence/.test(patternText));
+  check("the anomaly layer never speaks in advice", !/\b(buy|sell|hold|price target|forecast|predict)\b/i.test(patternText));
+  check("stored evidence is attributed to a model version and training window", /iforest-/.test(patternText) && /fitted on \d+ observed sessions/.test(patternText));
   await page.getByRole("link", { name: "Ask THESIS about this stock" }).click(); await page.waitForURL("**/ask?symbol=INFY.NS");
   const thesis = await ask("What is my thesis for INFY?");
   check("own structured thesis and exact note ground the answer", thesis.answer.includes("₹1,000.00 to ₹1,100.00") && thesis.answer.includes(note));
@@ -170,6 +180,10 @@ try {
   check("US replay is either observed or truthfully insufficient", /Observed occurrences|Not enough observed history|Replay is unavailable/.test(await page.locator("#thesis-replay").innerText()));
   const beta = await page.locator("body").innerText();
   check("a US security is never measured against NIFTY", !/vs \^NSEI/.test(beta));
+  await page.goto(base + "/symbol/KO");
+  check("a company THESIS does not monitor shows no anomaly section at all",
+    await page.locator(".panel", { hasText: "Market Pattern" }).count() === 0);
+  await page.goto(base + "/symbol/BLK");
   await page.getByRole("link", { name: "Ask THESIS about this stock" }).click(); await page.waitForURL("**/ask?symbol=BLK");
   const usAsk = await ask("What is my thesis for BLK?");
   check("Ask THESIS answers a US security in its own currency", usAsk.answer.includes("$1,000.00") && !usAsk.answer.includes("₹"));

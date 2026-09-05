@@ -7,6 +7,8 @@ import { lastCommittedBatchAt } from "@/lib/ingestion";
 import { formatExchangeTime, formatIST, IST } from "@/lib/time";
 import { formatMoney, marketLine } from "@/lib/securities";
 import { getWatchlist, type WatchlistRow } from "@/lib/watchlist";
+import { getLatestAnomaly, type StoredAnomaly } from "@/lib/ml/anomaly-server";
+import { anomalyEvidence } from "@/lib/ml/anomaly";
 
 /**
  * Ask THESIS is deliberately a reader of committed product state. It has no
@@ -40,6 +42,8 @@ export type AskContext = {
   recentEvents: AskEvent[];
   recentVerdicts?: AskEvent[];
   lastCompletedBatchAt: Date | null;
+  /** Stored anomaly evaluations for watched symbols. Secondary evidence, optional. */
+  anomalies?: Record<string, StoredAnomaly>;
 };
 
 export type AskReply = {
@@ -133,6 +137,26 @@ export function answerFromContext(rawQuestion: string, context: AskContext): Ask
     return { mode: context.mode, answer: `${prefix}${at.trimStart()}` };
   }
 
+  // The anomaly layer explains itself only from what was stored at detection
+  // time, and only as an observation — never as a cause or a forecast.
+  if (/\b(unusual|anomal\w*|pattern|outlier)\b/i.test(question)) {
+    const target = symbolInQuestion(question, context);
+    const stored = target ? context.anomalies?.[target] : undefined;
+    if (!target) {
+      return { mode: context.mode, answer: `${prefix}Name a watched company and I’ll tell you whether THESIS’s anomaly layer classified its most recent session as unusual, and show the signals it recorded.` };
+    }
+    if (!stored) {
+      return { mode: context.mode, answer: `${prefix}No stored anomaly evaluation is available for ${target}. The anomaly layer is secondary evidence and does not always have enough observed history; THESIS’s deterministic detection is unaffected.` };
+    }
+    const inputs = anomalyEvidence(stored.features).map((entry) => `${entry.label.toLowerCase()} ${entry.value}`).join(", ");
+    return {
+      mode: context.mode,
+      answer: stored.status === "UNUSUAL"
+        ? `${prefix}THESIS’s anomaly layer classified the combination of recorded market signals for ${target} on ${stored.tradingDate} as unusual relative to its own recent observations. At detection time: ${inputs}. Those are the inputs the model saw, not causes it identified, and this is secondary evidence — the deterministic engine decides what changed. It is not a prediction.`
+        : `${prefix}THESIS’s anomaly layer did not find the combination of signals recorded for ${target} on ${stored.tradingDate} unusual for this company. At detection time: ${inputs}.`,
+    };
+  }
+
   if (/\b(sigma|σ|standard deviation)\b/i.test(question)) {
     return {
       mode: context.mode,
@@ -208,9 +232,17 @@ export async function getAskContext(userId: number, currentSymbol?: string | nul
       .where(eq(watchlistItems.userId, userId)).orderBy(desc(thesisEvents.occurredAt)).limit(8),
   ]);
 
+  // Optional and isolated: a failure here costs an explanation, never an answer.
+  const anomalies: Record<string, StoredAnomaly> = {};
+  for (const symbol of symbolList) {
+    const stored = await getLatestAnomaly(symbol).catch(() => null);
+    if (stored) anomalies[symbol] = stored;
+  }
+
   return {
     // Demo replay is opt-in, so stored/seeded history cannot accidentally be presented as replay.
     mode: process.env.THESIS_DATA_MODE === "demo" ? "DEMO REPLAY" : "LIVE",
+    anomalies,
     currentSymbol: currentSymbol && symbolList.includes(currentSymbol) ? currentSymbol : null,
     watchlist,
     theses: thesisRows.flatMap((row) => row.type ? [{

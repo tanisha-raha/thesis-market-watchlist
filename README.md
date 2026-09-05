@@ -65,6 +65,22 @@ Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
 - *THESIS Replay* — historical occurrences of price ranges and volume-confirmed
   breakouts, using shared deterministic predicates; never writes monitoring events
 
+**Optional anomaly layer (machine learning)**
+
+- Isolation Forest, implemented in TypeScript in `lib/ml/` — no Python service,
+  no new deployment, no runtime dependency added
+- Unsupervised and per security: each company's model is fitted on its own recent
+  history, so "unusual" means "unlike this company", not "unlike other companies"
+- Eight features drawn from data THESIS already stores; missing features are
+  dropped as columns, never imputed with zero
+- Fitted during scheduled ingestion, after every deterministic write has
+  committed, and stored immutably with its model version, threshold, training
+  window and the exact features it saw
+- Categorical output — UNUSUAL / NORMAL / INSUFFICIENT_HISTORY / UNAVAILABLE —
+  never a score, a rating or a prediction
+- Secondary evidence throughout: no deterministic engine imports it, and the
+  product is complete when it is absent
+
 **Global market support**
 
 - Company search across NSE, BSE, NASDAQ and NYSE from one index — the same search
@@ -128,6 +144,56 @@ provider request supplies the quote and history — nothing is persisted, so thi
 is an interactive lookup rather than the cold backfill the deployed app is
 forbidden from doing, and a provider failure degrades to "Price history
 temporarily unavailable" with the rest of the page intact.
+
+### The anomaly layer
+
+Deterministic rules are excellent for known market conditions: a 2σ move, volume
+at twice its median, a level crossed. What they cannot express is a combination
+that is unremarkable in every individual dimension and unusual as a whole — a
+modest move, on modest volume, against the market, away from the moving average,
+on a day that gapped. The anomaly layer complements them by identifying unusual
+*combinations* of otherwise individually ordinary signals.
+
+**It is unsupervised, deliberately.** There is no reliable ground truth for
+whether a market observation "matters" to every investor, so THESIS does not
+train a supervised buy/sell classifier. Isolation Forest needs no labels: it
+learns the shape of a security's ordinary behaviour and reports how easily a day
+separates from it.
+
+**It does not predict.** The model identifies unusual historical market states;
+it does not forecast future returns, rank securities, or express a view on what a
+price will do next. Its output is categorical for exactly that reason — there is
+no score on any screen, because a number between 0 and 1 next to a company name
+reads as a rating no matter what the label says.
+
+**Explainability is stated honestly.** Isolation Forest gives no per-feature
+attribution, so THESIS never claims one. The UI separates the model's single
+claim ("this combination was unusual") from the observed evidence (price move,
+standardized move, relative volume, benchmark residual, distance from the moving
+average), and says in as many words that those signals are context rather than
+causes.
+
+| | |
+|---|---|
+| Model | Isolation Forest (Liu, Ting & Zhou, 2008), 100 trees, 256-row subsample, seeded |
+| Features | daily return, standardized return, realized volatility, log relative volume, benchmark residual, distance from MA20, position in the 20-day range, gap return |
+| Fitted on | that security's own last 250 feature rows, strictly before the evaluated session |
+| Minimum history | 60 usable training rows and at least three available features |
+| Threshold | the 99th percentile of the training scores — the security's own distribution |
+| Runs | once per security per session, inside scheduled ingestion, after detection commits |
+| Stored | `market_anomalies`: status, raw score, threshold, model version, data mode, feature snapshot, training-window metadata |
+
+Every rolling input for a session — volatility, median volume, the moving
+average, the 20-day range, beta — is computed from sessions strictly *before* it,
+and the evaluated row is never part of its own training set. Evaluating an old
+session therefore returns the same answer today as it would have on the day,
+which is what makes stored anomaly evidence auditable rather than merely
+re-derivable. Isolation Forest partitions on raw feature ranges, so nothing is
+standardised and there is no fitted scaler that could leak future statistics.
+
+If the model cannot fit, the layer records nothing: no badge, no section, no
+event. Detection, thesis evaluation, the digest and Replay are unaffected, and
+nothing in the deterministic pipeline reads the anomaly table.
 
 ### Two markets, one product
 
@@ -414,6 +480,14 @@ reproduces with `npm run detect`.
   requests from a residential IP produced no failures, but Yahoo throttles datacenter
   IPs harder and that test cannot speak for the deployment. The circuit breaker,
   replay adapter and never-cold-backfill rule are all treated as mandatory regardless.
+- **The anomaly layer flags roughly one session in a hundred, by construction.**
+  The threshold is the 99th percentile of a security's own training scores, so a
+  quiet security still produces occasional flags and a volatile one needs more to
+  stand out. That is the intended meaning — "unusual for this company" — and not
+  a claim about significance.
+- **Anomaly evidence exists only for monitored securities.** A company looked up
+  but never watched has no stored history to fit on, so the Market Pattern
+  section is omitted rather than estimated.
 - **The Home greeting is computed on IST**, not on the viewer's local clock. It is
   rendered on the server, and a client-side clock would flash the wrong greeting
   before correcting itself; every market-data timestamp is exchange-local regardless.
@@ -425,6 +499,12 @@ reproduces with `npm run detect`.
 ## Statements we stand behind
 
 > The core product is deterministic and fully functional without AI. The AI layer is optional presentation garnish, not a system dependency.
+
+> The anomaly layer is an optional analytical layer, not the LLM layer above. It is
+> real unsupervised machine learning on real stored observations, it is secondary
+> evidence to the deterministic engine, and the product is complete without it —
+> no deterministic module imports it, and its absence changes nothing a user
+> depends on.
 
 > Theses are structured and machine-verifiable rather than free-text. We never ask a
 > language model whether a user's reasoning still holds — every trigger and

@@ -332,3 +332,42 @@ export const userSymbolReadState = pgTable("user_symbol_read_state", {
   lastSeenEventId: integer("last_seen_event_id"),
   priceAdjustedAt: timestamp("price_adjusted_at", { withTimezone: true }),
 }, (t) => [uniqueIndex("read_state_user_symbol_idx").on(t.userId, t.symbol)]);
+
+/**
+ * Stored output of the optional anomaly layer (lib/ml/).
+ *
+ * SECONDARY EVIDENCE. Nothing in the deterministic pipeline reads this table:
+ * change events, thesis verdicts and the digest are computed without it, and the
+ * product is complete if it is empty. It exists so an "unusual pattern" shown to
+ * a user can be audited months later.
+ *
+ * IMMUTABLE, like `change_events`. A row captures the model version, the exact
+ * feature values the model saw, the training-window metadata and the threshold in
+ * force at evaluation time, and is never updated — recomputing it later against a
+ * restated series would silently change the evidence for a claim already made.
+ *
+ * `dataMode` keeps LIVE and DEMO REPLAY evaluations apart. It is part of the
+ * identity index, so a demo run can never overwrite or be read as a live result.
+ */
+export const marketAnomalies = pgTable("market_anomalies", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull().references(() => symbols.symbol, { onDelete: "cascade" }),
+  /** Exchange-local session the evaluation describes. */
+  tradingDate: date("trading_date", { mode: "string" }).notNull(),
+  /** That session's close, as an instant on the exchange's own clock. */
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull(),                 // UNUSUAL | NORMAL
+  /** Raw model output, kept for reproducibility and debugging. Never rendered as a score. */
+  score: numeric("score", { precision: 18, scale: 10 }),
+  threshold: numeric("threshold", { precision: 18, scale: 10 }),
+  modelVersion: text("model_version").notNull(),
+  dataMode: text("data_mode").notNull(),            // live | demo
+  featuresJson: jsonb("features_json").notNull(),
+  windowJson: jsonb("window_json").notNull(),
+  evaluatedAt: timestamp("evaluated_at", { withTimezone: true }).notNull(),
+  batchId: integer("batch_id").notNull().references(() => ingestionBatches.id),
+}, (t) => [
+  // Re-running detection over the same session cannot record a second opinion.
+  uniqueIndex("market_anomalies_identity_idx").on(t.symbol, t.tradingDate, t.modelVersion, t.dataMode),
+  index("market_anomalies_symbol_date_idx").on(t.symbol, t.tradingDate),
+]);
