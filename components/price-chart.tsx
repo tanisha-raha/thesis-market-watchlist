@@ -3,7 +3,7 @@ import type { HistoryPoint } from "@/lib/presentation";
 import { EmptyState } from "@/components/ui";
 
 /** Daily adjusted closes only; never fabricates an intraday path. */
-export function PriceChart({ points, compact = false }: { points: HistoryPoint[]; compact?: boolean }) {
+export function PriceChart({ points, compact = false, exchange }: { points: HistoryPoint[]; compact?: boolean; exchange?: string | null }) {
   const gradient = `chart-${useId().replace(/:/g, "")}`;
   if (points.length < 2) return <EmptyState title="Price history is not available yet" description="Your last-known quote stays visible. A chart will appear when usable stored history is available." />;
   const values = points.map((point) => point.close);
@@ -19,6 +19,6 @@ export function PriceChart({ points, compact = false }: { points: HistoryPoint[]
       <path d={`${path} L570,150 L10,150 Z`} fill={`url(#${gradient})`} />
       <path d={path} fill="none" stroke="currentColor" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
     </svg>
-    <figcaption><span>{points[0].date}</span><span>Through {points.at(-1)!.date} · NSE dates</span></figcaption>
+    <figcaption><span>{points[0].date}</span><span>Through {points.at(-1)!.date}{exchange ? ` · ${exchange} dates` : " · exchange dates"}</span></figcaption>
   </figure>;
 }
