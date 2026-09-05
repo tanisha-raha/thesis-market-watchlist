@@ -21,21 +21,22 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
   } catch {
     return { error: "We couldn’t sign you in right now. Please try again." };
   }
-  // The digest is the home surface: it leads with what changed, not with prices.
-  redirect("/digest");
+  // Home previews attention without acknowledging the full digest.
+  redirect("/");
 }
 
 export async function signUp(_prev: FormState, formData: FormData): Promise<FormState> {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
+  const displayName = String(formData.get("displayName") ?? "");
   try {
-    const result = await registerUser(email, password);
+    const result = await registerUser(email, password, displayName);
     if (!result.ok) return { error: result.error };
     await createSession(result.userId);
   } catch {
     return { error: "We couldn’t create your account right now. Please try again." };
   }
-  redirect("/digest");
+  redirect("/");
 }
 
 export async function signOut(): Promise<void> {
@@ -59,7 +60,8 @@ export async function addToWatchlist(_prev: FormState, formData: FormData): Prom
   if (!result.ok) return { error: result.error };
 
   const type = String(formData.get("thesisType") ?? "none") as ThesisType;
-  const note = String(formData.get("note") ?? "").trim() || null;
+  const noteInput = String(formData.get("note") ?? "");
+  const note = noteInput.trim() ? noteInput : null;
 
   if (type !== "none" || note) {
     const low = Number(formData.get("low"));

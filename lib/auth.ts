@@ -6,6 +6,7 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { sessions, users } from "@/db/schema";
+import { cleanDisplayName, validateDisplayName } from "@/lib/user-profile";
 
 /**
  * Minimal hand-rolled session auth.
@@ -62,14 +63,14 @@ export async function createSession(userId: number): Promise<void> {
   });
 }
 
-export type SessionUser = { id: number; email: string };
+export type SessionUser = { id: number; email: string; displayName: string | null };
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
   const rows = await db
-    .select({ id: users.id, email: users.email })
+    .select({ id: users.id, email: users.email, displayName: users.displayName })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date())))
@@ -97,14 +98,14 @@ export function validateCredentials(email: string, password: string): string | n
   return null;
 }
 
-export async function registerUser(email: string, password: string): Promise<AuthResult> {
-  const invalid = validateCredentials(email, password);
+export async function registerUser(email: string, password: string, displayName: string): Promise<AuthResult> {
+  const invalid = validateDisplayName(displayName) ?? validateCredentials(email, password);
   if (invalid) return { ok: false, error: invalid };
 
   try {
     const [row] = await db
       .insert(users)
-      .values({ email: normaliseEmail(email), passwordHash: await hashPassword(password) })
+      .values({ email: normaliseEmail(email), passwordHash: await hashPassword(password), displayName: cleanDisplayName(displayName) })
       .returning({ id: users.id });
     return { ok: true, userId: row.id };
   } catch (err) {

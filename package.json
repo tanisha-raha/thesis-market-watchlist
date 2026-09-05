@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env.local --import tsx db/migrate.ts",
+    "db:check": "node --env-file-if-exists=.env.local --import tsx scripts/schema-check.ts",
     "db:studio": "drizzle-kit studio",
     "validate:source": "node --env-file-if-exists=.env.local --import tsx scripts/validate-source.ts",
     "smoke": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/smoke.ts",
@@ -25,6 +26,7 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.11.1",
     "next": "^16.3.4",
     "postgres": "^3.4.9",
     "react": "^19.2.8",

@@ -7,34 +7,13 @@ const field =
   "mt-1 w-full border border-line bg-paper/60 px-3 py-2.5 text-body text-ink placeholder:text-faint " +
   "outline-none transition-colors focus:border-accent focus:shadow-[0_0_0_3px_rgba(55,211,173,.12)]";
 
-export function AuthForm() {
-  const [mode, setMode] = useState<"in" | "up">("in");
+function AuthFields({ mode }: { mode: "in" | "up" }) {
   const action = mode === "in" ? signIn : signUp;
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, undefined);
 
   return (
-    <div>
-      {/* Segmented control: the selected tab carries the ink fill, the other is quiet. */}
-      <div className="mb-6 grid grid-cols-2 border-b border-line text-meta">
-        {([["in", "Sign in"], ["up", "Create account"]] as const).map(([m, label]) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            aria-pressed={mode === m}
-            className={
-              "border-b-2 px-3 py-2 text-left font-medium uppercase tracking-[0.08em] transition-colors " +
-              (mode === m
-                ? "border-accent text-accent"
-                : "border-transparent text-muted hover:text-ink")
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       <form action={formAction} className="space-y-4">
+        {mode === "up" && <label className="block"><span className="label">Name</span><input name="displayName" required maxLength={80} autoComplete="name" className={field} /></label>}
         <label className="block">
           <span className="label">Email</span>
           <input name="email" type="email" required autoComplete="email" className={field} />
@@ -55,12 +34,21 @@ export function AuthForm() {
         <button
           type="submit"
           disabled={pending}
-          className="w-full bg-accent py-3 text-body font-semibold text-paper
-                     transition-all hover:bg-[#61e4c4] active:translate-y-px disabled:opacity-40"
+          className="button-primary auth-submit w-full"
         >
-          {pending ? "…" : mode === "in" ? "Sign in" : "Create account"}
+          {pending ? "Please wait…" : mode === "in" ? "Sign in" : "Create account"}
         </button>
       </form>
-    </div>
   );
+}
+
+export function AuthForm() {
+  const [mode, setMode] = useState<"in" | "up">("in");
+  return <section className="auth-card">
+    <p className="eyebrow">YOUR PERSONAL WORKSPACE</p>
+    <h2>{mode === "in" ? "Welcome back" : "Make it your watchlist"}</h2>
+    <p className="auth-description">{mode === "in" ? "Sign in to pick up where you left off." : "A little context makes every change more meaningful."}</p>
+    <AuthFields key={mode} mode={mode} />
+    <p className="auth-switch">{mode === "in" ? "New to THESIS?" : "Already have an account?"} <button type="button" onClick={() => setMode(mode === "in" ? "up" : "in")}>{mode === "in" ? "Create account" : "Sign in"}</button></p>
+  </section>;
 }

@@ -40,7 +40,7 @@ export function UserWords({ prompt, note }: { prompt: string; note?: string | nu
   return (
     <div className="quoted text-body">
       <div>{prompt}</div>
-      {note && <div className="mt-0.5 text-meta text-muted">&ldquo;{note}&rdquo;</div>}
+      {note && <div className="mt-0.5 text-meta text-muted whitespace-pre-wrap">&ldquo;{note}&rdquo;</div>}
     </div>
   );
 }
