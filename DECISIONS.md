@@ -638,3 +638,34 @@ mobile table-action reachability and repeated desktop chat focus. The isolated
 historical fixture showed 2 triggered, 1 contradicted and 4 missed events; all four
 populated digest layouts passed, and the disposable account was removed. The
 pre-existing demo account and all shared market data were preserved.
+
+**Canonical production verification.** Deployed source commit
+`97708b65ebb743638b666e43a4f114c39b78605a` to deployment
+`dpl_8cQUkHJXUSGHckKhDmAw6aRdYqdm`
+(`thesis-market-watchlist-ebqh0ybb3-tr-f64f.vercel.app`). Vercel's deployment API
+confirmed that commit SHA; inspection confirmed the alias
+`https://thesis-market-watchlist.vercel.app` points to it. The normal production
+`npm run build` passed with Turbopack.
+
+Against the canonical URL, `npm run browser-check` passed with zero failures:
+signup/login, empty state, RELIANCE price/change/freshness, Infosys search and add,
+structured INFY thesis and unchanged note, symbol detail, Home, Digest, visible
+Ask THESIS, grounded answers and advice refusal, logout/login persistence,
+unresolvable-symbol refusal, removal and post-logout gating. No uncaught client
+errors were recorded.
+
+`npm run visual-check` also passed against that URL: all four pages at 1536×864,
+1440×900, 1000×800 and 390×844, repeated desktop chat focus, smaller-screen drawers,
+mobile table-action reachability, INFY evidence/absence explanation and a simulated
+chat transport failure that left core navigation working. The generated production
+screenshots were visually inspected, including Home, Watchlist, Digest, Symbol
+Detail and the mobile drawer; artifacts are in
+`/private/tmp/thesis-redesign-production/` (not committed).
+
+Observed production data differs from the locally seeded demo: the inspected INFY
+page has a last-known quote but no usable stored history, statistics or event
+evidence. The NIFTY summary query also has no stored quote. These are explicit empty
+states/workspace context, not invented charts or values. No production seeding,
+migration, schema, credentials, provider configuration or engine changes were made
+as part of this UI pass. Populated historical event layouts were separately verified
+against actual existing local demo evidence, clearly labeled DEMO REPLAY.
