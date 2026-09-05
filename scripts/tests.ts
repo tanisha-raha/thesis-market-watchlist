@@ -24,6 +24,8 @@ import { evaluateThesis, resolveState } from "@/lib/thesis-engine";
 import { applyCorporateActions } from "@/lib/thesis";
 import { advanceDigestWatermark, advanceWatermark } from "@/lib/digest";
 import { answerFromContext, getAskContext, type AskContext } from "@/lib/ask-thesis";
+import { getPresentationData, getStoredEvidence } from "@/lib/presentation";
+import { feedDisplay, formatPrice } from "@/components/ui";
 import type { Bar, Quote } from "@/lib/market/types";
 
 let passed = 0;
@@ -58,6 +60,17 @@ async function reset() {
 
 await reset();
 
+section("Presentation — truthful feed states");
+{
+  const now = new Date();
+  check("regular quote never claims unverified live freshness", feedDisplay(now, "REGULAR").label === "DELAYED");
+  check("recent closed quote is labeled market closed", feedDisplay(now, "CLOSED").label === "MARKET CLOSED");
+  check("old closing quote cannot hide a stale feed", feedDisplay(new Date(now.getTime() - 48 * 3600_000), "CLOSED").label === "STALE");
+  check("degraded provider preserves last-known exchange timestamp", feedDisplay(now, "CLOSED", "degraded").label === "DEGRADED" && feedDisplay(now, "CLOSED", "degraded").asOf === now);
+  check("missing quote and explicit demo context remain distinct", feedDisplay(null, null).label === "AWAITING DATA" && feedDisplay(now, "CLOSED", "ok", true).label === "DEMO REPLAY");
+  check("missing and non-finite prices never become fabricated values", [null, NaN, Infinity].every((value) => formatPrice(value) === "—"));
+}
+
 /* ------------------------------------------------------------------------- */
 section("Ask THESIS — bounded explanation layer");
 {
@@ -75,6 +88,7 @@ section("Ask THESIS — bounded explanation layer");
   check("thesis context explains recorded state rather than deciding it", thesisReply.answer.includes("deterministic state is watching"));
   check("digest context reports committed digest output", answerFromContext("What changed while I was away?", context).answer.includes("condition triggered"));
   check("event context repeats stored evidence", answerFromContext("Why is this event significant?", context).answer.includes("2.3σ"));
+  check("evidence wording selects recorded event evidence", answerFromContext("Explain the latest INFY evidence", context).answer.includes("2.3σ"));
   check("advisory questions are declined", answerFromContext("Should I buy INFY?", context).answer.includes("can’t recommend"));
   check("missing non-watched symbol has no user-scoped context", answerFromContext("What is my thesis for TCS.NS?", context).answer.includes("not on your watchlist"));
   const demoReply = answerFromContext("Is this live data or demo replay?", { ...context, mode: "DEMO REPLAY" });
@@ -92,6 +106,16 @@ section("Ask THESIS — bounded explanation layer");
   const scoped = await getAskContext(firstUser.id);
   check("database context is scoped to the authenticated user", scoped.watchlist.length === 1 && scoped.watchlist[0]?.symbol === SYM);
   check("database context never leaks another user’s watched symbol", !scoped.watchlist.some((row) => row.symbol === otherSymbol) && !scoped.theses.some((thesis) => thesis.symbol === otherSymbol));
+  const [ownItem] = await db.select().from(watchlistItems).where(eq(watchlistItems.userId, firstUser.id));
+  await db.insert(theses).values({ watchlistItemId: ownItem.id, type: "price_range", paramsJson: { low: 90, high: 110 }, note: "Display only, unchanged" });
+  const presentation = await getPresentationData(firstUser.id);
+  check("dashboard reads only the current user's stored thesis and original note", presentation.theses.length === 1 && presentation.theses[0].symbol === SYM && presentation.theses[0].note === "Display only, unchanged");
+  const [presentationBatch] = await db.insert(ingestionBatches).values({ status: "COMPLETED", completedAt: new Date() }).returning();
+  await db.insert(changeEvents).values({ symbol: SYM, signalType: "large_move", window: "1d", magnitude: "1", score: "1", occurredAt: new Date(), detectedAt: new Date(), ingestionBatchId: presentationBatch.id, explainJson: { price: 100 } });
+  check("featured evidence remains available outside the unread digest window", (await getStoredEvidence(firstUser.id, SYM)).entries.length > 0);
+  check("featured evidence denies symbols outside watchlist membership", (await getStoredEvidence(secondUser.id, SYM)).entries.length === 0);
+  await db.delete(changeEvents).where(eq(changeEvents.symbol, SYM));
+  await db.delete(ingestionBatches).where(eq(ingestionBatches.id, presentationBatch.id));
   await db.delete(users).where(inArray(users.id, [firstUser.id, secondUser.id]));
   await db.delete(symbols).where(eq(symbols.symbol, otherSymbol));
 }

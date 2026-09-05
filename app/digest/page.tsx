@@ -2,93 +2,39 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { getDigest } from "@/lib/digest";
+import { getWatchlist } from "@/lib/watchlist";
 import { Anomaly, Contradiction, Missed, Trigger } from "@/components/digest-cards";
 import { formatIST } from "@/lib/time";
 import { AppShell } from "@/components/app-shell";
 import { DigestReadReceipt } from "@/components/digest-read-receipt";
+import { DashboardCard, EmptyState, CompanyMark, Icon } from "@/components/ui";
+import { AddStockButton } from "@/components/workspace-controls";
 
 export const dynamic = "force-dynamic";
-
 export default async function DigestPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-
-  const d = await getDigest(user.id);
+  const [d, rows] = await Promise.all([getDigest(user.id), getWatchlist(user.id)]);
   const counts = [
-    { n: d.contradictions.length, label: "contradicted", tone: "text-contradiction" },
-    { n: d.triggers.length, label: "triggered", tone: "text-trigger" },
-    { n: d.missed.length, label: "missed", tone: "text-missed" },
-    { n: d.unchanged.length, label: "unchanged", tone: "text-faint" },
+    { n: d.contradictions.length, label: "CONTRADICTED", detail: "Theses to revisit", tone: "text-contradiction" },
+    { n: d.triggers.length, label: "TRIGGERED", detail: "Your conditions were met", tone: "text-trigger" },
+    { n: d.missed.length, label: "MISSED", detail: "Happened and reversed", tone: "text-missed" },
+    { n: d.unchanged.length, label: "UNCHANGED", detail: "In this digest window", tone: "text-muted" },
   ];
-  const nothingAtAll =
-    d.contradictions.length + d.triggers.length + d.missed.length + d.anomalies.length === 0;
-
-  return (
-    <AppShell email={user.email} active="digest">
-      <DigestReadReceipt cutoff={d.cutoff.toISOString()} />
-
-      <section className="mt-8">
-        <h2 className="text-title font-medium tracking-tight">While you were away</h2>
-        <p className="mt-1 text-meta text-muted">
-          {d.awayFrom ? <>Since {formatIST(d.awayFrom)} IST</> : <>Since you started watching</>}
-          {" · "}
-          {/*
-            "Market closed since your last visit" is a different statement from
-            "nothing changed", and the calendar is derived from observed bars.
-          */}
-          {d.marketClosedThroughout
-            ? "market closed since your last visit"
-            : `${d.sessionsInWindow} trading ${d.sessionsInWindow === 1 ? "session" : "sessions"}`}
-        </p>
-
-        <dl className="mt-5 flex flex-wrap gap-x-8 gap-y-2 border-y border-line py-3">
-          {counts.map((c) => (
-            <div key={c.label} className="flex items-baseline gap-1.5">
-              <dd className={`num text-emphasis ${c.n > 0 ? c.tone : "text-faint"}`}>{c.n}</dd>
-              <dt className={`text-meta ${c.n > 0 ? "text-muted" : "text-faint"}`}>{c.label}</dt>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      {nothingAtAll && (
-        <div className="mt-8 rounded-sm border border-dashed border-line-strong px-6 py-10 text-center text-body text-muted">
-          {d.marketClosedThroughout
-            ? "The market has been closed since your last visit. Nothing could have changed."
-            : "Nothing has met, contradicted, or reversed against your conditions."}
-          {" "}
-          <Link href="/watchlist#add-stock" className="mt-3 inline-block text-meta text-accent underline-offset-2 hover:underline">
-            Add a stock to watch
-          </Link>
-        </div>
-      )}
-
-      {/* Priority order: contradictions, triggers, missed, then generic anomalies. */}
-      <div className="mt-8 space-y-4">
-        {d.contradictions.map((c) => <Contradiction key={c.thesisId} card={c} />)}
-        {d.triggers.map((c) => <Trigger key={c.thesisId} card={c} />)}
-        {d.missed.map((c) => <Missed key={`${c.symbol}-${c.occurredAt.toISOString()}`} card={c} />)}
-        {d.anomalies.map((c) => <Anomaly key={`${c.symbol}-${c.occurredAt.toISOString()}`} card={c} />)}
-      </div>
-
-      {d.unchanged.length > 0 && (
-        <p className="mt-8 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-line pt-4 text-meta">
-          <span className="text-faint">○ {d.unchanged.length} unchanged</span>
-          {/*
-            Clickable, because "unchanged" is a claim a reader is entitled to
-            check. It should mean genuinely nothing, not merely nothing detected.
-          */}
-          {d.unchanged.map((u) => (
-            <Link
-              key={u.symbol}
-              href={`/symbol/${encodeURIComponent(u.symbol)}`}
-              className="text-muted underline-offset-2 transition-colors hover:text-ink hover:underline"
-            >
-              {u.symbol}
-            </Link>
-          ))}
-        </p>
-      )}
-    </AppShell>
-  );
+  const nothingAtAll = d.contradictions.length + d.triggers.length + d.missed.length + d.anomalies.length === 0;
+  return <AppShell email={user.email} active="digest" rows={rows} demo={process.env.THESIS_DATA_MODE === "demo"}>
+    <DigestReadReceipt cutoff={d.cutoff.toISOString()} />
+    <div className="page-heading"><div><p className="eyebrow">YOUR PERSONAL MARKET BRIEF</p><h1>While you were away</h1><p>{d.awayFrom ? `Since ${formatIST(d.awayFrom)} IST` : "Since you started watching"}{" · "}{d.marketClosedThroughout ? "No trading sessions in this window" : `${d.sessionsInWindow} trading ${d.sessionsInWindow === 1 ? "session" : "sessions"}`}</p></div><Link className="button-secondary" href="/">Home <Icon name="arrow" size={14} /></Link></div>
+    <div className="summary-grid digest-counts">{counts.map((c) => <section key={c.label} className="metric-card"><span className="eyebrow">{c.label}</span><strong className={`num ${c.tone}`}>{c.n}</strong><span className="text-micro text-faint">{c.detail}</span></section>)}</div>
+    <p className="text-micro text-faint mb-4">Snapshot through {formatIST(d.cutoff)} IST. Ordered by personal relevance.</p>
+    {nothingAtAll && <DashboardCard><EmptyState title="No meaningful changes since your last check." description={rows.length ? "No new trigger, contradiction, or reversal is recorded in this digest window. Your watchlist and saved conditions remain in view." : "Add a company and an optional thesis. Your next meaningful change will have a place here."} icon="digest"><AddStockButton /></EmptyState></DashboardCard>}
+    <div className="digest-timeline">
+      {d.contradictions.map((c) => <Contradiction key={c.thesisId} card={c} />)}
+      {d.triggers.map((c) => <Trigger key={c.thesisId} card={c} />)}
+      {d.missed.map((c) => <Missed key={`${c.symbol}-${c.occurredAt.toISOString()}`} card={c} />)}
+      {d.anomalies.map((c) => <Anomaly key={`${c.symbol}-${c.occurredAt.toISOString()}`} card={c} />)}
+    </div>
+    {d.unchanged.length > 0 && <DashboardCard title="Still on your radar" meta={<span className="count-chip">{d.unchanged.length} unchanged</span>} className="mt-4"><div className="unchanged-grid">{d.unchanged.map((u) => <Link key={u.symbol} href={`/symbol/${encodeURIComponent(u.symbol)}`}><CompanyMark symbol={u.symbol} /><div><strong>{u.symbol}</strong><small>{u.name}</small></div><Icon name="chevron" size={14} /></Link>)}</div></DashboardCard>}
+    <div className="two-column mt-4"><DashboardCard title="What makes a change meaningful?"><div className="panel-body text-meta text-muted leading-relaxed">A condition met. A thesis contradicted. Or a move that happened and reversed before you returned. Each card preserves the evidence recorded at the time.</div></DashboardCard><DashboardCard title="Keep your reason in view"><div className="panel-body text-meta text-muted leading-relaxed">Your free-text notes are yours. Structured conditions connect market changes to why a company is on your watchlist.<Link href="/watchlist" className="panel-link !mx-0 mt-3">Review your watchlist <Icon name="arrow" size={14} /></Link></div></DashboardCard></div>
+  </AppShell>;
 }

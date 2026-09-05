@@ -560,3 +560,81 @@ expected case, not a defect. Momentum types have no trigger by design — they a
 maintenance theses whose news is that they are still valid.
 
 `npm run calibrate` reproduces the table; `FLOOR=n` sweeps the noise floor.
+
+---
+
+## 2026-09-05 — Reference-led authenticated workspace redesign
+
+**Scope.** Rebuilt the presentation of Home, Watchlist, Digest and Symbol Detail
+around the supplied terminal reference: persistent left navigation, top company
+search, restrained mountain banner, dense cards/table, evidence and a visible
+right-hand THESIS AI panel. The sidebar exposes only real routes. At widths below
+1280px chat becomes a native modal drawer; below 768px navigation becomes a menu.
+Add Stock uses the existing form/actions inside a native dialog. No UI framework
+or dependency was added. Login/signup actions, schema, provider, ingestion,
+detection, thesis evaluation and replay logic were not rewritten.
+
+**Truthfulness and read boundaries.** Home reads the existing digest without
+advancing its watermark. The full Digest retains its existing browser read receipt
+and completed-batch cutoff. New `lib/presentation.ts` queries are read-only: saved
+user-scoped theses, the already-stored ^NSEI quote, usable stored daily closes, and
+latest evidence behind watchlist membership. Featured evidence does not disappear
+merely because the digest has been read; it is separately timestamped so its price
+cannot be confused with today's quote. User notes remain display-only, unchanged.
+
+Charts show up to 60 stored adjusted daily closes and the actual NSE date range.
+Null/nonpositive closes and zero-volume bars are excluded. These are not invented
+intraday sparklines. Company marks are ticker initials, not fabricated logos.
+SENSEX, NIFTY BANK, Top Movers, news, portfolios and fake reference-only features
+were intentionally omitted. No new market-data subsystem or cold backfill was
+introduced.
+
+**Feed status.** The shell uses the oldest watched exchange timestamp, with missing
+and degraded outcomes taking precedence. An exchange timestamp older than 36 hours
+is conservatively STALE even if its old market state said CLOSED; recent closed
+quotes say MARKET CLOSED, regular quotes say DELAYED, and absent quotes say
+AWAITING DATA. None claims a verified LIVE stream. Explicit `THESIS_DATA_MODE=demo`
+labels the shell, quotes and explanation panel DEMO REPLAY. Actual instants remain
+rendered in IST; trading dates remain dates. Last-known-good values are untouched.
+
+**Ask THESIS.** The existing scoped `/api/ask` and deterministic response system
+remain the source. Sidebar activation opens/focuses the same conversation UI;
+desktop presents a persistent panel and smaller screens a drawer. The only answer
+selection change is recognizing the word “evidence” as the existing event-evidence
+intent, with a regression assertion. No LLM, predictions or investment advice was
+added. Transport failure is visibly isolated to chat.
+
+**Visual QA details.** Screenshot review found and corrected stretched empty
+panels, a below-fold Home composer, closed-menu focus, and a screen-reader table
+label whose absolute positioning escaped its horizontal scroll container. The
+table now contains its positioning context and exposes a mobile swipe hint; it
+does not hide financial columns. Long timelines scroll within their panels.
+Screenshots disable transitions and reset page scroll before capture, avoiding
+mid-transition/focused-offscreen artifacts without arbitrary sleeps.
+
+The responsive browser script covers 1536×864, 1440×900, 1000×800 and 390×844,
+empty/new accounts, long company names and notes, a populated watchlist, all four
+pages, chat focus/drawers, INFY evidence/thesis, advisory refusal and isolated chat
+failure. The historical visual check is restricted to local hosts/databases and
+copies existing demo-owned records into a disposable account; it never fabricates
+market events or resets the source account's watermarks. Its own account is removed
+after screenshots. Financial fixtures are never added to the production UI.
+
+**Artwork.** `public/images/thesis-mountains.png` was generated with the built-in
+image generation tool (not a CLI). Prompt direction: a photorealistic Himalayan
+mountain panorama at a slate/navy dawn, mist, dark left-side negative space for
+white copy, and no text, logos or finance symbols. This is decorative artwork only;
+charts, prices and evidence still come from the application.
+
+**Local verification.** TypeScript passes; `npm test` passes 80 assertions and
+`npm run smoke` passes 31. The authenticated browser regression passes including
+logout/login watchlist and note persistence. The default `npm run build`
+encountered a local Turbopack worker `Operation not permitted` error; the same
+application builds successfully with `npm run build -- --webpack`. No production
+build configuration was changed to conceal this environment limitation.
+
+The local responsive suite passed on all four pages at every target size, including
+mobile table-action reachability and repeated desktop chat focus. The isolated
+historical fixture showed 2 triggered, 1 contradicted and 4 missed events; all four
+populated digest layouts passed, and the disposable account was removed. The
+pre-existing demo account and all shared market data were preserved.

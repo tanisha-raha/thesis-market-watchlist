@@ -17,7 +17,8 @@ While you were away
   ○ 4 unchanged
 ```
 
-The digest is the product's home surface. Three kinds of news a conventional
+The Home dashboard brings the watchlist, thesis context, and a compact digest
+together. The complete `/digest` view preserves three kinds of news a conventional
 watchlist cannot express:
 
 - **Condition met** — the thing you were waiting for happened.
@@ -55,8 +56,10 @@ Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
   stored market evidence without an AI dependency
 - *Digest and symbol detail* — a "While you were away" view, evidence panels,
   missed-event replay, and a traceable per-symbol view
-- *Ask THESIS* — an authenticated, read-only explanation drawer over the current
-  user’s watchlist, thesis and committed evidence
+- *Authenticated workspace* — reference-led sidebar, global company search, dense
+  watchlist, Add Stock dialog, dashboard and stored-history symbol charts
+- *Ask THESIS* — an authenticated, read-only explanation panel on desktop and drawer
+  below 1280px, over the current user’s watchlist, thesis and committed evidence
 
 See [DECISIONS.md](DECISIONS.md) for the reasoning, calibration record, and
 intentional cut list.
@@ -106,7 +109,9 @@ docker run -d --name thesis-pg \
 | `npm run db:migrate` | Apply migrations |
 | `npm test` | Database-backed and deterministic regression suite (needs `DATABASE_URL`) |
 | `npm run smoke` | End-to-end against a real database and the live feed |
-| `npm run browser-check [url]` | Drives the UI in a real browser |
+| `npm run browser-check -- [url]` | Signup, watchlist, thesis, chat, removal, logout/login persistence |
+| `npm run visual-check -- [url] [output-directory]` | Screenshots and responsive interaction checks at 1536, 1440, 1000 and 390px; creates a test account |
+| `npm run visual-history-check -- [local-demo-url] [output-directory]` | Populated digest screenshots from an isolated copy of existing demo evidence; local DB/server only; removes its own fixture account |
 | `npm run validate:source` | Re-runs the Phase 0 data-source validation |
 | `npm run seed:daily` / `seed:intraday` | Fetch history locally into `seed/` |
 | `npm run seed:load` | Load committed seed files into the database |
@@ -138,6 +143,23 @@ observations the application uses. It verifies that the digest contains a thesis
 contradiction, a condition trigger, and a resolved intraday missed event. It does
 not insert fabricated market events. Use the credentials printed by the script;
 they are intentionally local/demo-only and should not be reused in production.
+
+Set `THESIS_DATA_MODE=demo` on an explicitly demo-only server to label the shell,
+quotes, and explanations **DEMO REPLAY**. The normal production deployment must not
+use that flag. `npm run visual-check -- http://localhost:3101 /tmp/thesis-demo --demo`
+can inspect an already-created local demo account; the visual script does not seed
+history or generate events.
+
+### Presentation boundaries
+
+`components/app-shell.tsx` supplies the sidebar, command/search bar and responsive
+chat. `components/ui.tsx` and `dashboard-widgets.tsx` define shared cards, status,
+freshness and evidence presentation. `lib/presentation.ts` adds read-only queries
+for the user's saved theses, existing NIFTY quote, stored daily closes and event
+evidence. Home never acknowledges a digest; the existing `/digest` read receipt is
+unchanged. Historical charts omit zero-volume bars and show their actual NSE date
+range, never an invented intraday line. Evidence is timestamped separately from the
+latest quote. SENSEX, NIFTY BANK and Top Movers were intentionally not added.
 
 ### Deployment
 

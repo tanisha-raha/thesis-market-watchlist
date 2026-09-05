@@ -1,245 +1,69 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { changeEvents, quotes, symbols, symbolStats, theses, thesisEvents, watchlistItems } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { evidenceFrom } from "@/lib/digest";
-import { Evidence, UserWords } from "@/components/evidence";
-import { formatAge, formatIST } from "@/lib/time";
+import { getWatchlist } from "@/lib/watchlist";
+import { getStoredHistory, type StoredThesis } from "@/lib/presentation";
+import { Evidence } from "@/components/evidence";
+import { formatIST } from "@/lib/time";
 import { acknowledge } from "@/app/actions";
 import { AppShell } from "@/components/app-shell";
+import { DashboardCard, EmptyState, Icon, CompanyMark, formatPrice, FreshnessBadge, PriceChange, StatusBadge } from "@/components/ui";
+import { ThesisCard, EvidencePanel } from "@/components/dashboard-widgets";
+import { PriceChart } from "@/components/price-chart";
 
 export const dynamic = "force-dynamic";
-
-const inr = (v: number | null) =>
-  v == null ? "—" : `₹${new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)}`;
-
-const STATE_TONE: Record<string, string> = {
-  CONTRADICTED: "text-contradiction",
-  TRIGGERED: "text-trigger",
-  STILL_VALID: "text-muted",
-  WATCHING: "text-muted",
-};
-
-/**
- * Symbol detail: thesis versus reality.
- *
- * What you said, what happened, what changed around it, and the current status —
- * including, importantly, the case where nothing happened. A reader who clicks
- * through from "unchanged" is entitled to see that we looked and found nothing,
- * rather than being shown an empty page that could equally mean we never checked.
- */
 export default async function SymbolPage({ params }: { params: Promise<{ symbol: string }> }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const { symbol: raw } = await params;
   const symbol = decodeURIComponent(raw);
-
-  const [item] = await db
-    .select({
-      itemId: watchlistItems.id,
-      name: symbols.name,
-      thesisId: theses.id,
-      thesisType: theses.type,
-      thesisNote: theses.note,
-      thesisState: theses.state,
-      thesisCreatedAt: theses.createdAt,
-      paramsAdjustedAt: theses.paramsAdjustedAt,
-      thesisParams: theses.paramsJson,
-      price: quotes.price,
-      previousClose: quotes.previousClose,
-      asOf: quotes.asOf,
-      marketState: quotes.marketState,
-    })
-    .from(watchlistItems)
-    .innerJoin(symbols, eq(symbols.symbol, watchlistItems.symbol))
-    .leftJoin(theses, eq(theses.watchlistItemId, watchlistItems.id))
-    .leftJoin(quotes, eq(quotes.symbol, watchlistItems.symbol))
-    .where(and(eq(watchlistItems.userId, user.id), eq(watchlistItems.symbol, symbol)))
-    .limit(1);
-
+  const [item] = await db.select({ itemId: watchlistItems.id, name: symbols.name, thesisId: theses.id, thesisType: theses.type,
+    thesisNote: theses.note, thesisState: theses.state, thesisCreatedAt: theses.createdAt, paramsAdjustedAt: theses.paramsAdjustedAt,
+    thesisParams: theses.paramsJson, price: quotes.price, previousClose: quotes.previousClose, asOf: quotes.asOf, marketState: quotes.marketState })
+    .from(watchlistItems).innerJoin(symbols, eq(symbols.symbol, watchlistItems.symbol))
+    .leftJoin(theses, eq(theses.watchlistItemId, watchlistItems.id)).leftJoin(quotes, eq(quotes.symbol, watchlistItems.symbol))
+    .where(and(eq(watchlistItems.userId, user.id), eq(watchlistItems.symbol, symbol))).limit(1);
   if (!item) notFound();
-
+  const [statsRows, events, verdicts, points, rows] = await Promise.all([
+    db.select().from(symbolStats).where(eq(symbolStats.symbol, symbol)).limit(1),
+    db.select().from(changeEvents).where(eq(changeEvents.symbol, symbol)).orderBy(desc(changeEvents.occurredAt)).limit(12),
+    item.thesisId ? db.select().from(thesisEvents).where(eq(thesisEvents.thesisId, item.thesisId)).orderBy(desc(thesisEvents.occurredAt)).limit(6) : Promise.resolve([]),
+    getStoredHistory(symbol), getWatchlist(user.id),
+  ]);
+  const stats = statsRows[0];
   const price = item.price == null ? null : Number(item.price);
   const previousClose = item.previousClose == null ? null : Number(item.previousClose);
-  const move = price != null && previousClose != null && previousClose !== 0
-    ? ((price - previousClose) / previousClose) * 100
-    : null;
-
+  const move = price != null && previousClose != null && previousClose !== 0 ? ((price - previousClose) / previousClose) * 100 : null;
   const storedParams = (item.thesisParams ?? {}) as Record<string, unknown>;
-  const adjustments = (Array.isArray(storedParams.adjustments) ? storedParams.adjustments : []) as {
-    reason: string; factor: number; affectedFrom: string; affectedTo: string;
-    before: Record<string, number>; after: Record<string, number>;
-  }[];
-
-  const [stats] = await db.select().from(symbolStats).where(eq(symbolStats.symbol, symbol)).limit(1);
-  const events = await db.select().from(changeEvents)
-    .where(eq(changeEvents.symbol, symbol)).orderBy(desc(changeEvents.occurredAt)).limit(12);
-  const verdicts = item.thesisId
-    ? await db.select().from(thesisEvents)
-        .where(eq(thesisEvents.thesisId, item.thesisId)).orderBy(desc(thesisEvents.occurredAt)).limit(6)
-    : [];
-
-  return (
-    <AppShell email={user.email} active="watchlist" currentSymbol={symbol}>
-      <header className="mt-8 border-b border-line pb-4">
-        <div className="flex items-baseline justify-between gap-4">
-          <div>
-            <h1 className="text-title font-medium tracking-tight">{symbol}</h1>
-            {item.name && <p className="mt-0.5 text-meta text-muted">{item.name}</p>}
-          </div>
-          <div className="text-right">
-            <div className="num text-title">{inr(price)}</div>
-            {move != null && (
-              <div className={`num mt-0.5 text-meta ${move >= 0 ? "text-up" : "text-down"}`}>
-                {move >= 0 ? "+" : ""}{move.toFixed(2)}% <span className="font-sans text-micro text-faint">vs prev close</span>
-              </div>
-            )}
-            <div className="text-micro text-faint">
-              {item.asOf ? (
-                <span title={`Exchange time: ${formatIST(item.asOf)} IST`}>
-                  {formatAge(item.asOf)}
-                  {item.marketState && item.marketState !== "REGULAR" && " · market closed"}
-                </span>
-              ) : "awaiting first quote"}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* --- thesis vs reality ------------------------------------------- */}
-      <section className="mt-8">
-        <h2 className="label">Your thesis</h2>
-        {item.thesisType && item.thesisType !== "none" ? (
-          <div className="mt-2">
-            <UserWords
-              prompt={{
-                price_range: "Waiting for a dip", breakout: "Watching for a breakout",
-                momentum_up: "Tracking momentum", momentum_down: "Tracking a decline",
-                volatility_watch: "Watching for unusual moves",
-                volume_expansion: "Watching for volume expansion",
-              }[item.thesisType] ?? item.thesisType}
-              note={item.thesisNote}
-            />
-            <p className="mt-2 text-meta">
-              <span className={STATE_TONE[item.thesisState ?? "WATCHING"] ?? "text-muted"}>
-                {(item.thesisState ?? "WATCHING").replace("_", " ").toLowerCase()}
-              </span>
-              {item.thesisCreatedAt && (
-                <span className="text-faint">
-                  {" · "}recorded {formatIST(item.thesisCreatedAt)}, evaluated from then onward
-                </span>
-              )}
-            </p>
-            {/*
-              Never a silent rewrite. The user typed a number; a corporate action
-              changed what that number means, so we show both and say why.
-            */}
-            {item.paramsAdjustedAt && adjustments.length > 0 && (
-              <div className="mt-3 border-l-2 border-missed bg-missed-soft/40 py-3 pl-3 pr-3">
-                <div className="label text-missed">Adjusted for a corporate action</div>
-                {adjustments.map((a, i) => (
-                  <div key={i} className="mt-2">
-                    <p className="text-meta text-muted">
-                      A {a.reason} between {a.affectedFrom} and {a.affectedTo} restated this
-                      symbol&rsquo;s price history by{" "}
-                      <span className="num">{a.factor}×</span>. We adjusted the levels you
-                      wrote so they still mean what you meant.
-                    </p>
-                    <dl className="mt-2 grid grid-cols-[auto_auto_auto] items-baseline gap-x-3 gap-y-1">
-                      {Object.keys(a.before).map((k) => (
-                        <div key={k} className="contents">
-                          <dt className="text-meta text-muted capitalize">{k}</dt>
-                          <dd className="num text-meta text-faint line-through">{inr(a.before[k])}</dd>
-                          <dd className="num text-body text-ink">{inr(a.after[k])}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </div>
-                ))}
-              </div>
-            )}
-            {item.thesisId && (
-              <form action={acknowledge} className="mt-3">
-                <input type="hidden" name="thesisId" value={item.thesisId} />
-                <button className="rounded-sm border border-line bg-surface px-3 py-1.5 text-meta text-muted transition-colors hover:border-line-strong hover:text-ink">
-                  Keep watching
-                </button>
-              </form>
-            )}
-          </div>
-        ) : (
-          <p className="mt-2 text-body text-muted">
-            No thesis recorded. You&rsquo;ll see general anomalies for this symbol.
-          </p>
-        )}
-      </section>
-
-      {verdicts.length > 0 && (
-        <section className="mt-8">
-          <h2 className="label">Verdict history</h2>
-          <ul className="mt-2 divide-y divide-line border-y border-line">
-            {verdicts.map((v) => (
-              <li key={v.id} className="flex items-baseline justify-between gap-4 py-2">
-                <span className={`text-body ${v.kind === "contradicted" ? "text-contradiction" : "text-trigger"}`}>
-                  {v.kind}
-                </span>
-                <span className="text-meta text-faint">
-                  {(v.conditionsMetJson as string[]).join(", ")}
-                </span>
-                <time className="num text-micro text-faint">{formatIST(v.occurredAt)}</time>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* --- what changed around it --------------------------------------- */}
-      <section className="mt-8">
-        <h2 className="label">What changed around it</h2>
-        {events.length === 0 ? (
-          <p className="mt-2 rounded-sm border border-dashed border-line-strong px-4 py-6 text-body text-muted">
-            Nothing detected. We hold {stats?.sessionsUsed ?? 0} sessions of history for this symbol
-            and evaluate it on every ingestion run — this is nothing having happened, not nothing
-            having been checked.
-          </p>
-        ) : (
-          <ul className="mt-2 divide-y divide-line border-y border-line">
-            {events.map((e) => (
-              <li key={e.id} className="py-3">
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-body">{e.signalType.replace(/_/g, " ")}</span>
-                  <span className="text-micro text-faint">
-                    {formatIST(e.occurredAt)}
-                    {e.resolvedAt && <> → {formatIST(e.resolvedAt)} · reversed</>}
-                  </span>
-                </div>
-                <div className="mt-2">
-                  <Evidence entries={evidenceFrom(e.explainJson as Record<string, unknown>).slice(0, 5)} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {stats && (
-        <section className="mt-8">
-          <h2 className="label">Reference levels</h2>
-          <div className="mt-2">
-            <Evidence
-              entries={[
-                { label: "52-week high", value: inr(stats.high52w == null ? null : Number(stats.high52w)), basis: "adjusted closes" },
-                { label: "52-week low", value: inr(stats.low52w == null ? null : Number(stats.low52w)), basis: "adjusted closes" },
-                { label: "20-day average", value: inr(stats.ma20 == null ? null : Number(stats.ma20)) },
-                { label: "Realized volatility", value: stats.realizedVol20 == null ? "—" : `${(Number(stats.realizedVol20) * 100).toFixed(2)}%`, basis: "daily, 20-day" },
-                { label: "Beta", value: stats.beta60 == null ? "—" : Number(stats.beta60).toFixed(2), basis: "60-day, vs ^NSEI" },
-                { label: "Sessions held", value: String(stats.sessionsUsed), basis: "traded sessions only" },
-              ]}
-            />
-          </div>
-        </section>
-      )}
-    </AppShell>
-  );
+  const adjustments = (Array.isArray(storedParams.adjustments) ? storedParams.adjustments : []) as { reason: string; factor: number; affectedFrom: string; affectedTo: string; before: Record<string, number>; after: Record<string, number> }[];
+  const thesis: StoredThesis | undefined = item.thesisId && item.thesisCreatedAt ? { id: item.thesisId, symbol, type: item.thesisType ?? "none", state: item.thesisState ?? "WATCHING", params: item.thesisParams, note: item.thesisNote, createdAt: item.thesisCreatedAt } : undefined;
+  const evidence = verdicts[0] ? evidenceFrom(verdicts[0].evidenceJson as Record<string, unknown>) : events[0] ? evidenceFrom(events[0].explainJson as Record<string, unknown>) : [];
+  const demo = process.env.THESIS_DATA_MODE === "demo";
+  return <AppShell email={user.email} active="watchlist" currentSymbol={symbol} rows={rows} demo={demo}>
+    <Link href="/watchlist" className="inline-flex gap-2 items-center text-meta text-faint mb-4 hover:text-accent"><span>←</span> Back to watchlist</Link>
+    <header className="symbol-heading"><div className="flex items-center gap-3 min-w-0"><CompanyMark symbol={symbol} /><div className="min-w-0"><h1>{item.name ?? symbol}</h1><p className="text-meta text-faint mt-1">{symbol} <span className="mx-1">·</span> NSE <span className="mx-1">·</span> INR</p></div></div><div className="symbol-price"><div className="num text-title">{formatPrice(price)}</div><div><PriceChange value={move} /><span className="text-micro text-faint ml-2">vs prev close</span></div><FreshnessBadge asOf={item.asOf} marketState={item.marketState} health={rows.find((row) => row.symbol === symbol)?.health} demo={demo} /></div></header>
+    <div className="symbol-grid"><DashboardCard title="Price History" action={<span className="status-badge neutral">DAILY CLOSE</span>}><div className="panel-body"><PriceChart points={points} /><p className="text-micro text-faint mt-3">Stored adjusted daily closes. Historical series may end before the latest quote above.</p></div></DashboardCard><ThesisCard thesis={thesis} company={item.name}>
+      {item.paramsAdjustedAt && adjustments.map((a, i) => <div className="adjustment-note" key={i}><strong>Adjusted for a corporate action</strong><p className="mt-1">{a.reason} · {a.factor}× · {a.affectedFrom} to {a.affectedTo}</p>{Object.keys(a.before).map((key) => <p key={key}>{key}: <s>{formatPrice(a.before[key])}</s> → {formatPrice(a.after[key])}</p>)}</div>)}
+      {item.thesisId && <form action={acknowledge} className="mt-4"><input type="hidden" name="thesisId" value={item.thesisId} /><button className="button-secondary">Keep watching</button></form>}
+    </ThesisCard></div>
+    <div className="two-column mt-4"><EvidencePanel state={item.thesisState} entries={evidence} occurredAt={verdicts[0]?.occurredAt ?? events[0]?.occurredAt} /><DashboardCard title="Reference Levels" action={<span className="eyebrow">ADJUSTED SERIES</span>}>
+      {stats ? <><div className="panel-body"><Evidence entries={[
+        { label: "52-week high", value: formatPrice(stats.high52w == null ? null : Number(stats.high52w)), basis: "adjusted closes" },
+        { label: "52-week low", value: formatPrice(stats.low52w == null ? null : Number(stats.low52w)), basis: "adjusted closes" },
+        { label: "20-day average", value: formatPrice(stats.ma20 == null ? null : Number(stats.ma20)) },
+        { label: "Realized volatility", value: stats.realizedVol20 == null ? "—" : `${(Number(stats.realizedVol20) * 100).toFixed(2)}%`, basis: "daily, 20-day" },
+        { label: "Beta", value: stats.beta60 == null ? "—" : Number(stats.beta60).toFixed(2), basis: "60-day, vs ^NSEI" },
+        { label: "Sessions held", value: String(stats.sessionsUsed), basis: "traded sessions only" },
+      ]} /></div><p className="panel-caption">Computed {formatIST(stats.computedAt)} IST</p></> : <EmptyState title="Reference statistics are not available yet" description="Statistics will appear after sufficient usable history has been ingested." />}
+    </DashboardCard></div>
+    <div className="two-column mt-4"><DashboardCard title="Recent Events & Reversals" meta={<span className="count-chip">{events.length}</span>}>
+      {events.length === 0 ? <EmptyState title="No detected events recorded." description={`THESIS holds ${stats?.sessionsUsed ?? 0} usable sessions for this symbol. No event evidence is available to display.`} /> : <div className="symbol-events">{events.map((event) => <article key={event.id} className="symbol-event"><div className="symbol-event-heading"><strong className="text-meta font-medium">{event.signalType.replace(/_/g, " ")}</strong><StatusBadge state={event.resolvedAt ? "RESOLVED" : "DETECTED"} /></div><p className="text-micro text-faint mt-2">{formatIST(event.occurredAt)} IST{event.resolvedAt && ` → ${formatIST(event.resolvedAt)} IST · reversed`}</p><div className="mt-3"><Evidence entries={evidenceFrom(event.explainJson as Record<string, unknown>).slice(0, 5)} /></div></article>)}</div>}
+    </DashboardCard><DashboardCard title="Thesis Timeline" meta={<span className="count-chip">{verdicts.length}</span>}>
+      {verdicts.length ? <div className="symbol-events">{verdicts.map((verdict) => <article key={verdict.id} className="symbol-event"><div className="symbol-event-heading"><StatusBadge state={verdict.kind.toUpperCase()} /><time>{formatIST(verdict.occurredAt)} IST</time></div><p className="mt-2 text-meta text-muted break-words">{(verdict.conditionsMetJson as string[]).join(", ").replace(/_/g, " ")}</p><div className="mt-3"><Evidence entries={evidenceFrom(verdict.evidenceJson as Record<string, unknown>)} /></div></article>)}</div> : <EmptyState title="No thesis verdicts yet" description={thesis ? "Your saved condition has no recorded trigger or contradiction. Its current state is shown above." : "Add a structured thesis to monitor the reason you’re watching."} icon="shield" />}
+    </DashboardCard></div>
+  </AppShell>;
 }

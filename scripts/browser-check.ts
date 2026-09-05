@@ -39,22 +39,23 @@ const primaryNav = page.getByRole("navigation", { name: "Main navigation" });
 const askTrigger = primaryNav.getByRole("button", { name: "Ask THESIS" });
 check("Ask THESIS is visible in primary desktop navigation", await askTrigger.isVisible());
 await askTrigger.click();
-check("Ask THESIS opens for an authenticated user", await page.getByRole("heading", { name: "Ask THESIS" }).isVisible());
+check("Ask THESIS opens for an authenticated user", await page.getByRole("region", { name: "Ask THESIS", exact: true }).isVisible());
 await page.getByRole("button", { name: "What changed while I was away?" }).click();
 await page.getByText(/THESIS has no new detected changes|THESIS found/).waitFor({ timeout: 15_000 });
 await page.getByLabel("Ask THESIS a question").fill("Should I buy INFY?");
 await page.getByRole("button", { name: "Send" }).click();
 await page.getByText(/can’t recommend whether you should buy, sell, or hold/).waitFor({ timeout: 15_000 });
 await page.getByRole("button", { name: "Close Ask THESIS" }).click();
-await page.getByRole("link", { name: "Watchlist" }).click();
+await primaryNav.getByRole("link", { name: "Watchlist", exact: true }).click();
 await page.waitForURL("**/watchlist");
 check("Ask THESIS is visible on Watchlist", await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Ask THESIS" }).isVisible());
 check("empty state shown", await page.getByText("Nothing on your watchlist yet").isVisible());
 
 console.log("\nadd a symbol");
+await page.getByRole("button", { name: "Add Stock", exact: true }).click();
 const symbolInput = page.locator('input[name="symbol"][autocomplete="off"]');
 await symbolInput.fill("RELIANCE.NS");
-await page.getByRole("button", { name: "Add" }).click();
+await page.getByRole("button", { name: "Add", exact: true }).click();
 const removeReliance = page.getByRole("button", { name: "Remove RELIANCE.NS" });
 await removeReliance.waitFor({ state: "visible", timeout: 40_000 });
 check("symbol appears in the list", await removeReliance.isVisible());
@@ -73,7 +74,7 @@ await page.waitForURL("**/symbol/RELIANCE.NS", { timeout: 20_000 });
 const detailAsk = page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Ask THESIS" });
 check("Ask THESIS is visible on Symbol Detail", await detailAsk.isVisible());
 await detailAsk.click();
-check("Ask THESIS opens from Symbol Detail", await page.getByRole("heading", { name: "Ask THESIS" }).isVisible());
+check("Ask THESIS opens from Symbol Detail", await page.getByRole("region", { name: "Ask THESIS", exact: true }).isVisible());
 await page.getByRole("button", { name: "Close Ask THESIS" }).click();
 const detail = await page.locator("main").innerText();
 check("watchlist symbol opens its detail", /RELIANCE\.NS/.test(detail));
@@ -83,6 +84,7 @@ await page.goBack();
 await page.waitForURL("**/watchlist", { timeout: 20_000 });
 
 console.log("\nsearch");
+await page.getByRole("button", { name: "Add Stock", exact: true }).click();
 await symbolInput.fill("");
 await symbolInput.type("infosys", { delay: 30 });
 const suggestion = page.getByRole("button", { name: /INFY\.NS/ });
@@ -95,7 +97,8 @@ if (gotSuggestions) {
   await page.getByLabel("Waiting for a dip").check();
   await page.locator('input[name="low"]').fill("1000");
   await page.locator('input[name="high"]').fill("1100");
-  await page.getByRole("button", { name: "Add" }).click();
+  await page.locator('input[name="note"]').fill("Browser check: my note stays exactly as written.");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   const removeInfy = page.getByRole("button", { name: "Remove INFY.NS" });
   await removeInfy.waitFor({ state: "visible", timeout: 40_000 });
   await page.getByRole("button", { name: "Ask THESIS" }).click();
@@ -106,23 +109,43 @@ if (gotSuggestions) {
   check("Ask THESIS uses the current user’s INFY thesis", gotInfyThesis);
   await page.getByLabel("Ask THESIS a question").fill("Why is this event significant?");
   await page.getByRole("button", { name: "Send" }).click();
-  const noEvent = page.getByText(/no stored detected event/);
-  const gotNoEvent = await noEvent.waitFor({ state: "visible", timeout: 15_000 }).then(() => true).catch(() => false);
-  check("Ask THESIS states when no event evidence exists", gotNoEvent);
+  const eventAnswer = page.getByText(/no stored detected event|was marked for .* at /);
+  const gotEventAnswer = await eventAnswer.waitFor({ state: "visible", timeout: 15_000 }).then(() => true).catch(() => false);
+  check("Ask THESIS shows recorded evidence or states its absence", gotEventAnswer);
+  await page.getByLabel("Ask THESIS a question").fill("Explain NOTWATCHEDCHECK.NS event");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByText(/NOTWATCHEDCHECK.NS is not on your watchlist/).waitFor({ timeout: 15_000 });
+  check("Ask THESIS does not invent missing symbol context", true);
   await page.getByRole("button", { name: "Close Ask THESIS" }).click();
 }
 
+console.log("\nhome dashboard and persistence");
+await primaryNav.getByRole("link", { name: "Home", exact: true }).click();
+await page.waitForURL(base + "/");
+check("Home dashboard exposes watchlist and digest preview", await page.getByRole("heading", { name: "My Watchlist" }).isVisible() && await page.getByRole("heading", { name: "While You Were Away" }).isVisible());
+await page.getByRole("button", { name: "Sign out" }).click();
+await page.waitForURL("**/login");
+await page.locator('input[name="email"]').fill(email);
+await page.locator('input[name="password"]').fill("hunter2hunter2");
+await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
+await page.waitForURL("**/digest", { timeout: 30_000 });
+await primaryNav.getByRole("link", { name: "Watchlist", exact: true }).click();
+await page.waitForURL("**/watchlist");
+check("watchlist persists across logout/login", await page.getByRole("button", { name: "Remove RELIANCE.NS" }).isVisible() && await page.getByRole("button", { name: "Remove INFY.NS" }).isVisible());
+check("free-text thesis note is preserved", await page.getByText("“Browser check: my note stays exactly as written.”").isVisible());
+
 console.log("\nunresolvable symbol");
+await page.getByRole("button", { name: "Add Stock", exact: true }).click();
 await symbolInput.fill("NOTAREALTICKER.NS");
-await page.getByRole("button", { name: "Add" }).click();
+await page.getByRole("button", { name: "Add", exact: true }).click();
 const unresolvedMessage = page.getByText("We could not resolve NOTAREALTICKER.NS on NSE.");
 const rejectedUnresolvable = await unresolvedMessage.waitFor({ state: "visible", timeout: 20_000 })
   .then(() => true)
   .catch(() => false);
 check("silently dropped symbol is explicitly rejected", rejectedUnresolvable);
+await page.getByRole("button", { name: "Close Add Stock" }).click();
 
 console.log("\nremove");
-await symbolInput.fill("");
 await removeReliance.click();
 const removeInfy = page.getByRole("button", { name: "Remove INFY.NS" });
 if (await removeInfy.isVisible()) await removeInfy.click();

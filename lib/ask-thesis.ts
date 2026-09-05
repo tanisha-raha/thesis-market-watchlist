@@ -148,7 +148,7 @@ export function answerFromContext(rawQuestion: string, context: AskContext): Ask
     return { mode: context.mode, answer: `${prefix}Your thesis for ${symbol} is “${thesisName(thesis.type)}” and its current deterministic state is ${thesis.state.toLowerCase().replace(/_/g, " ")}.${range}${thesis.note ? ` Your note: “${thesis.note}”` : ""}` };
   }
 
-  if (/\b(significant|event|why)\b/i.test(question)) {
+  if (/\b(significant|event|evidence|why)\b/i.test(question)) {
     const event = context.recentEvents.find((item) => !symbol || item.symbol === symbol);
     if (!event) return { mode: context.mode, answer: `${prefix}${symbol ? `THESIS has no stored detected event for ${symbol} to explain.` : "THESIS has no stored detected event in this scoped context to explain."}` };
     return { mode: context.mode, answer: `${prefix}${eventExplanation(event)}` };

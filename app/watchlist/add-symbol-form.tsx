@@ -24,9 +24,9 @@ const OPTIONS: { value: string; label: string; needs: "range" | "level" | null }
   { value: "volatility_watch", label: "Watching for unusual moves", needs: null },
 ];
 
-export function AddSymbolForm() {
+export function AddSymbolForm({ initialSymbol = "", onAdded }: { initialSymbol?: string; onAdded?: () => void }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(addToWatchlist, undefined);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialSymbol);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [type, setType] = useState("none");
   const [searchState, setSearchState] = useState<"idle" | "loading" | "empty" | "error">("idle");
@@ -54,11 +54,11 @@ export function AddSymbolForm() {
   }, [query]);
 
   useEffect(() => {
-    if (state && !state.error) { setQuery(""); setResults([]); setType("none"); setSearchState("idle"); }
-  }, [state]);
+    if (state && !state.error) { setQuery(""); setResults([]); setType("none"); setSearchState("idle"); onAdded?.(); }
+  }, [state, onAdded]);
 
   return (
-    <form action={formAction} className="rounded-sm border border-line bg-surface p-4" aria-busy={pending}>
+    <form action={formAction} className="add-stock-form" aria-busy={pending}>
       <div className="relative">
         <label className="label" htmlFor="symbol">Add a symbol</label>
         <div className="mt-1 flex gap-2">
@@ -71,7 +71,7 @@ export function AddSymbolForm() {
             className="shrink-0 bg-accent px-4 py-2 text-body font-semibold text-paper
                        transition-colors hover:bg-[#61e4c4] disabled:opacity-40"
           >
-            {pending ? "…" : "Add"}
+            {pending ? "Adding…" : "Add"}
           </button>
         </div>
 
