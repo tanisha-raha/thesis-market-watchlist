@@ -669,3 +669,95 @@ states/workspace context, not invented charts or values. No production seeding,
 migration, schema, credentials, provider configuration or engine changes were made
 as part of this UI pass. Populated historical event layouts were separately verified
 against actual existing local demo evidence, clearly labeled DEMO REPLAY.
+
+---
+
+## Global market support (final polish pass)
+
+**THESIS was an NSE product with a global tagline.** Search filtered on `.NS`,
+`formatPrice` prepended `₹`, every timestamp rendered in IST, every beta was measured
+against `^NSEI`, and the top bar said "MARKET CLOSED" for a whole watchlist. Searching
+"BlackRock" answered "No NSE symbols found." The fix was not to delete the Indian
+semantics — an NSE listing still needs rupees, IST and NIFTY — but to stop applying
+them by default to everything.
+
+**Security metadata is resolved in one place, from the provider.** `lib/securities.ts`
+maps a symbol to its exchange, market, currency, exchange timezone and benchmark.
+Yahoo returns all of it on every quote (`currency`, `exchangeTimezoneName`, an
+exchange code), so provider metadata is authoritative and inference — exchange name,
+then currency, then the `.NS`/`.BO` suffix — is only the fallback for rows written
+before we captured it. A symbol we cannot place resolves to *unknown*: no currency
+symbol, UTC labelled as UTC, no benchmark. It never silently becomes Indian.
+
+**One additive migration.** `0008` adds a nullable `symbols.exchange_timezone`.
+Nothing else changed: no symbol identity moved, no foreign key was touched, and every
+existing user, watchlist, thesis and event row is untouched. Rows predating the column
+carry NULL and resolve through inference until the next poll fills them in —
+`ingestQuotes` now refreshes name, exchange, currency and timezone from the feed on
+every poll, which is also how the eight seeded US symbols acquired their metadata.
+
+**Benchmarks are regional, or absent.** Beta and the benchmark-relative residual are
+computed against `^NSEI` for Indian securities and `^GSPC` for US ones. If a market's
+index history is not stored, the residual signal is *withheld* and beta stays null,
+with the symbol page saying which benchmark is missing. Comparing AAPL to NIFTY 50
+would have produced a confident number about nothing — a fabricated signal is a worse
+failure than an absent one.
+
+**Sessions are stamped on the exchange's clock, DST included.** A daily event used to
+be written at `${date}T10:00:00Z` — the NSE close, hardcoded. `zonedInstant` now
+converts a trading date plus a local session time into an instant using the exchange's
+zone, so a September NASDAQ close lands at 20:00Z and a December one at 21:00Z. It
+reproduces exactly `10:00Z` and `03:45Z` for Asia/Kolkata, which is asserted in the
+test suite: every already-stored Indian event keeps its identity, so nothing
+duplicates or moves.
+
+**Ordering matters, and the ingestion route already had it right.** Market metadata
+comes from the quote feed, so `/api/ingest` polls before it detects. A symbol seeded
+from a file but never quoted has no exchange recorded and would fall back to the
+Indian session clock — which is exactly what happened once locally, and the 25 events
+recorded in that state were deleted and re-derived after the first poll rather than
+left to mislead.
+
+**The US universe is eight names, not five hundred.** Statistics, detection, digest
+and Replay are computed from *stored history*, and the deployed app never
+cold-backfills. So the seeded universe defines what the product can genuinely reason
+about: the NIFTY 50 set, both benchmarks, and AAPL, MSFT, NVDA, AMZN, GOOGL, TSLA,
+JPM, BLK. Any other symbol the provider resolves can still be watched — it shows a
+real price and real freshness, and says plainly that it holds no stored history yet
+rather than rendering an empty chart with no explanation.
+
+**Search is an allowlist, not everything Yahoo returns.** "Apple" resolves on XETRA,
+Buenos Aires and São Paulo too. Each is a real security with a different currency,
+calendar and benchmark, and offering it would advertise coverage nothing downstream
+has been validated for. Search surfaces NSE, BSE, NASDAQ and NYSE; adding by ticker
+stays open, because refusing a symbol the provider can quote would be a worse failure
+than rendering it from its own metadata. The Indian name fallbacks stay and now rank
+first: the provider still omits `INFY.NS` when you search "Infosys" and answers with
+the NYSE ADR.
+
+**Home became a market brief instead of a fourth dashboard.** Two rows of three
+index cards on one grid — equal heights are a CSS fact, not a coincidence, and the
+browser check asserts all six render one height. Each card shows the level, the point
+and percent change, a sparkline or an explicit "History unavailable", and its own
+exchange-local timestamp. Sparklines are drawn in a neutral tone deliberately: a
+20-day line coloured red beside a green daily change is two claims in one card.
+India and the US report session state separately ("INDIA CLOSED · US OPEN"), and when
+the provider gives no state we show freshness rather than guess. `QuickNavigation`
+was removed — it duplicated the sidebar — along with five dashboard widgets left
+unreferenced by the earlier redesign.
+
+**Appearance is Light and Dark.** "System" meant the same account could look
+different on two machines with nobody having chosen either. A stored `system`
+preference resolves to Dark and is rewritten on read, so no existing user is left on
+a value the UI can no longer display.
+
+**Verification.** `npm test` 142 assertions, `npm run smoke` 48 against the live
+provider (including adding AAPL and BLK, both currencies in one watchlist, and
+"BlackRock" → BLK/NYSE), `npm run browser-check` 59 checks end to end (global search
+→ add → mixed-currency watchlist → US symbol detail → US thesis in dollars → Ask
+THESIS), and the visual matrix across four viewports in both themes, which asserts
+six equal-height index cards, both currencies in the watchlist table, and no ₹ or IST
+anywhere on a US security's page. The local-only historical digest fixture
+(`npm run visual-history-check`) is restricted by design to a local database and was
+not runnable against the Neon URL in this pass; the missed-event session frame it
+covers visually is asserted directly in the test suite instead.

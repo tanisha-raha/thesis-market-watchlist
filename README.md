@@ -17,8 +17,8 @@ While you were away
   ○ 4 unchanged
 ```
 
-The Home dashboard brings the watchlist, thesis context, and a compact digest
-together. The complete `/digest` view preserves three kinds of news a conventional
+Home is a concise Market Brief, not a second watchlist. The complete `/digest`
+view preserves three kinds of updates a conventional
 watchlist cannot express:
 
 - **Condition met** — the thing you were waiting for happened.
@@ -32,21 +32,23 @@ watchlist cannot express:
 
 Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
 
-**Built and verified end to end**
+**Deterministic foundation (local tests and prior production verification)**
 
 - Email/password auth with server-side sessions (tokens stored hashed)
-- Symbol search across NSE, add and remove from a watchlist
+- One company search across NSE, BSE, NASDAQ and NYSE; add and remove from a watchlist
 - Live prices, each shown with the exchange timestamp it was reported at and its age
 - Scheduled ingestion behind a protected route — the only writer of quotes
 - Append-only storage: daily bars, an intraday price path, per-symbol statistics
 - `symbol_stats`: 20-day realized volatility, median volume, 20-day MA, 60-day beta
-  vs NIFTY, and 52-week / 20-day levels — all on the adjusted series, traded sessions only
+  vs the security's own market index, and 52-week / 20-day levels — all on the
+  adjusted series, traded sessions only
 - Corporate-action **detection** from provider-history restatement, with uniformity,
   tolerance and plausibility guards
 - Feed resilience: batch reconciliation for silently dropped symbols, transient vs
   terminal miss classification, last-known-good serving
-- Seeded history: 60 days of 5-minute bars and 2 years of daily bars for 51 symbols,
-  fetched locally and committed, so the deployed app never cold-backfills
+- Seeded history: 60 days of 5-minute bars for the Indian universe and 2 years of
+  daily bars for 60 symbols across both markets, fetched locally and committed, so
+  the deployed app never cold-backfills
 
 **Also built**
 
@@ -58,8 +60,63 @@ Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
   missed-event replay, and a traceable per-symbol view
 - *Authenticated workspace* — reference-led sidebar, global company search, dense
   watchlist, Add Stock dialog, dashboard and stored-history symbol charts
-- *Ask THESIS* — an authenticated, read-only explanation panel on desktop and drawer
-  below 1280px, over the current user’s watchlist, thesis and committed evidence
+- *Ask THESIS* — dedicated `/ask` conversation: authenticated deterministic answers
+  from stored THESIS context, plus optional server-side general finance education
+- *THESIS Replay* — historical occurrences of price ranges and volume-confirmed
+  breakouts, using shared deterministic predicates; never writes monitoring events
+
+**Global market support**
+
+- Company search across NSE, BSE, NASDAQ and NYSE from one index — the same search
+  powers the top bar and Add Stock
+- Per-security exchange, currency and timezone taken from provider quote metadata
+  and persisted (`symbols.exchange_timezone`, additive migration `0008`)
+- Native currency everywhere: ₹ on an NSE listing, $ on a US one, never converted
+- Exchange-local freshness: a NASDAQ quote is never timestamped in IST, and a US
+  security is not "closed" because the NSE is
+- India and the US index rows on Home, each with its own session state and clock
+- Regional benchmarks (`^NSEI` / `^GSPC`) for beta and benchmark-relative evidence,
+  withheld rather than substituted when a market's index history is missing
+- Deterministic detection, digest, thesis evaluation and Replay run unchanged on US
+  securities: sessions are stamped at that exchange's close, DST included
+
+This pass is locally verified against the live provider and a real browser;
+production sign-off is recorded in [DECISIONS.md](DECISIONS.md). The additive
+`0008` migration and the extended daily seed need to be applied to the production
+database before deploying. General Q&A needs an API key.
+
+## The product loop
+
+DEFINE → TEST → MONITOR → DETECT → EXPLAIN → REMEMBER
+
+| Surface | Its job |
+|---|---|
+| Home `/` | Market Brief: personalised greeting, NIFTY 50 / SENSEX / NIFTY BANK and S&P 500 / NASDAQ / Dow, each market's own session state and clock, a compact personal status strip, and current publisher headlines. No stock rows. |
+| Watchlist `/watchlist` | Company management, last-known quotes, freshness, structured condition and status. Responsive cards below desktop table widths. |
+| Digest `/digest` | What happened while away: stored triggers, contradictions, missed/reversed events, evidence and normal read receipts. |
+| Symbol Detail `/symbol/[symbol]` | Price/history, original note, structured thesis, reference statistics, evidence, timeline and THESIS Replay. |
+| Ask THESIS `/ask` | Session conversation, separate THESIS DATA / GENERAL labels, contextual stock entry and helpful advice boundary. Never permanently embedded elsewhere. |
+
+The top-right account menu shows only the authenticated identity and offers exactly
+two appearances — Light and Dark — plus sign-out. The preference persists per
+browser, and a preference stored before the third option was removed resolves to
+Dark. New accounts store a validated display name; legacy names remain nullable and
+fall back to a generic greeting.
+
+### Two markets, one product
+
+THESIS is not an NSE-only watchlist. Search covers NSE, BSE, NASDAQ and NYSE, and a
+watchlist can hold `INFY.NS` in ₹ on Mumbai time next to `AAPL` in $ on New York
+time. Nothing is converted or aggregated across currencies, no security is labelled
+with another market's clock, and India and the US report their session states
+separately — one "MARKET CLOSED" banner can only ever be true of one of them.
+
+Every security's exchange, currency and timezone come from the provider's own quote
+metadata (`lib/securities.ts` is the single place that resolves them, with inference
+only as a fallback for rows written before the metadata column existed). Benchmark-
+relative evidence is regional: `^NSEI` for Indian securities, `^GSPC` for US ones,
+and **withheld entirely** when no index history is stored for that market rather
+than measured against the wrong index.
 
 See [DECISIONS.md](DECISIONS.md) for the reasoning, calibration record, and
 intentional cut list.
@@ -68,7 +125,7 @@ intentional cut list.
 
 ## Setup
 
-Requires Node 20+ and a Postgres database.
+Requires Node 22+ (the installed Yahoo adapter requirement) and a Postgres database.
 
 ```bash
 git clone https://github.com/tanisha-raha/thesis-market-watchlist.git
@@ -88,6 +145,11 @@ npm run dev                       # http://localhost:3000
 | `DATABASE_URL` | Any Postgres URL — see the Docker one-liner below |
 | `SESSION_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `CRON_SECRET` | Any random string; only the ingestion route reads it |
+| `OPENAI_API_KEY` | Optional server-only OpenAI key for GENERAL education; never put it in a `NEXT_PUBLIC_*` variable |
+| `OPENAI_MODEL` | Optional model override; defaults to `gpt-4.1-mini` |
+
+Current auth stores opaque random session-token hashes in Postgres; `SESSION_SECRET`
+is a reserved legacy deployment variable, not the signing mechanism.
 
 Seed data is committed to the repository, so a clean clone has two years of daily
 bars and sixty days of 5-minute bars without touching the network.
@@ -146,20 +208,60 @@ they are intentionally local/demo-only and should not be reused in production.
 
 Set `THESIS_DATA_MODE=demo` on an explicitly demo-only server to label the shell,
 quotes, and explanations **DEMO REPLAY**. The normal production deployment must not
-use that flag. `npm run visual-check -- http://localhost:3101 /tmp/thesis-demo --demo`
-can inspect an already-created local demo account; the visual script does not seed
-history or generate events.
+use that flag. `npm run visual-history-check -- http://localhost:3102 /tmp/thesis-demo`
+can inspect an existing local demo dataset using a disposable scoped account.
+The script does not seed market history or fabricate events. A populated demo is
+verified locally only; do not advertise production demo access until separately tested.
+
+### THESIS Replay (distinct from DEMO REPLAY)
+
+THESIS Replay is historical condition analysis, **not a prediction or an
+investment-strategy backtest**. It describes the current user's saved condition over
+up to 60 stored usable sessions. No returns, P&L, optimization or advice is produced.
+It does not change thesis state, create events, or move read watermarks.
+
+Supported: inclusive `price_range`, and `breakout` with the existing 1.5× median
+volume confirmation. `lib/thesis-conditions.ts` is shared with monitoring. Price
+ranges use the current provider close (not dividend-adjusted `adjClose`); breakout
+uses the same adjusted-close basis as the thesis engine. The historical series is
+provider-restated, not vendor-raw history. Pending validated corporate-action
+reconciliation blocks Replay rather than comparing incompatible condition scales.
+
+Consecutive qualifying daily closes form one observed occurrence; a subsequent
+non-qualifying close resolves it. Displayed metrics: actual date window/session
+count, occurrences, resolved occurrences, longest observed run, last occurrence,
+median threshold distance and a date-only timeline. Entry already present at the
+window start is explicitly left-censored. Data gaps/intraday paths remain unknown;
+daily bars cannot prove same-session crossings or reversals. Today's potentially
+unfinished daily bar is excluded. Fewer than two evaluable closes is insufficient;
+breakouts first require 20 usable volume sessions. Other thesis types are explicitly
+unsupported rather than given invented historical semantics.
+
+DEMO REPLAY is different: deterministic provider infrastructure demonstrating real
+stored event sequences. THESIS Replay analyzes a condition; DEMO REPLAY supplies a
+demonstration dataset. Both use clear, separate labels.
 
 ### Presentation boundaries
 
-`components/app-shell.tsx` supplies the sidebar, command/search bar and responsive
-chat. `components/ui.tsx` and `dashboard-widgets.tsx` define shared cards, status,
-freshness and evidence presentation. `lib/presentation.ts` adds read-only queries
-for the user's saved theses, existing NIFTY quote, stored daily closes and event
-evidence. Home never acknowledges a digest; the existing `/digest` read receipt is
-unchanged. Historical charts omit zero-volume bars and show their actual NSE date
-range, never an invented intraday line. Evidence is timestamped separately from the
-latest quote. SENSEX, NIFTY BANK and Top Movers were intentionally not added.
+`components/app-shell.tsx` supplies the sidebar, command/search bar and account menu.
+`components/ui.tsx` and `dashboard-widgets.tsx` define shared cards, status,
+freshness and evidence presentation, all parameterised by the security's currency
+and exchange clock. `lib/presentation.ts` adds read-only queries for the user's
+saved theses, stored daily closes and event evidence. Home never acknowledges a
+digest; the existing `/digest` read receipt is unchanged. Historical charts omit
+zero-volume bars and show their actual exchange date range, never an invented
+intraday line. Evidence is timestamped separately from the latest quote. Index cards
+make one small cached quote request through the existing live provider; stored
+quotes are a last-known fallback. Sparklines prefer stored history and otherwise
+make one cached, read-only chart request per index — nothing is persisted, and an
+index with neither says "History unavailable" rather than showing empty space.
+Failed or omitted indices stay truthful.
+
+Market Briefing reads the Economic Times public Markets RSS feed: at most six
+headlines from the last 72 hours, original publisher link/source/time, a 7-second
+timeout, 256KB payload cap, no XML entities/DOCTYPE, and 10-minute public caching.
+No article bodies, sentiment or causal attribution. News is presentation context
+only and is never imported by detection, thesis evaluation, evidence or Replay.
 
 ### Deployment
 
@@ -172,7 +274,10 @@ Deployed as a single Next.js app on Vercel with Postgres on Neon.
    perform a cold historical backfill, because Yahoo throttles datacenter IPs far
    harder than residential ones.
 4. Scheduling is split by cadence. `vercel.json` runs the daily statistics recompute
-   after NSE close, which fits within the Hobby plan's once-per-day cron limit.
+   after the NSE close, which fits within the Hobby plan's once-per-day cron limit.
+   The ingestion route polls quotes before it detects, deliberately: a symbol's
+   exchange and timezone come from the quote feed, and detection needs them to stamp
+   a session in the right market's clock.
    Frequent quote polling runs from `.github/workflows/poll.yml` every ten minutes
    during market hours; it needs `INGEST_URL` and `CRON_SECRET` as repository secrets.
 
@@ -196,10 +301,18 @@ evaluated deterministically against market data. A contradiction requires at lea
 **Ask THESIS is an optional AI explanation layer over deterministic system outputs. It
 does not detect events, determine thesis validity, or provide investment advice.** The
 core product is deterministic and fully functional without AI. The AI layer is optional
-presentation garnish, not a system dependency. The shipped drawer uses a bounded,
+presentation garnish, not a system dependency. The THESIS DATA mode uses a bounded,
 read-only explanation path: it receives only the authenticated user’s relevant
 watchlist, theses, digest output and recent evidence, never a database dump. It labels
-explicit demo replay context and declines advice or prediction requests.
+explicit demo replay context and declines advice or prediction requests. GENERAL
+uses an optional server-only OpenAI Responses API boundary (`store: false`, six
+bounded conversation turns, 500 output tokens, 12-second timeout, no tools or DB
+context). Responses are labeled GENERAL, never user evidence. Missing key, provider
+errors and truncated responses have explicit degraded states. A best-effort
+per-instance 8/minute/user guard complements—not replaces—provider spend limits.
+THESIS-specific questions always use deterministic data, even in GENERAL selection.
+Notes remain verbatim text and are not interpreted. No model can change an engine
+decision, event, watermark or Replay result.
 
 **Two storage facts that shaped the schema.** Yahoo returns no raw price series — its
 `close` is already split-adjusted and is restated retroactively across all history
@@ -241,9 +354,27 @@ reproduces with `npm run detect`.
   deferred rather than half-done.
 - **Sector-relative signals are not shipped.** Eleven NSE sector indices have usable
   history but `^CNXFIN` has none, so financials — a large slice of any Indian
-  watchlist — would have no sector benchmark. One benchmark applied consistently
-  beats a signal that silently does not apply to banks. NIFTY-relative is used
-  throughout.
+  watchlist — would have no sector benchmark. One benchmark per market applied
+  consistently beats a signal that silently does not apply to banks.
+- **Only two markets are supported: India and the US.** Search is restricted to NSE,
+  BSE, NASDAQ and NYSE. Any symbol the provider can quote can still be added by
+  ticker and will render in its own currency and exchange time, but it has no
+  regional benchmark and no seeded history.
+- **A watched security outside the seeded universe has quotes but no history.** The
+  deployed app never cold-backfills, so statistics, detection, digest events and
+  Replay only exist for symbols whose daily bars were seeded from a local checkout
+  (the NIFTY 50 set plus eight US names and both benchmarks). Any other symbol shows
+  its price and freshness and says plainly that it has no stored history yet —
+  `npm run seed:daily && npm run seed:load` extends that set.
+- **Intraday history is Indian-only.** The committed 5-minute seed covers the NSE
+  universe, so US missed-event detection depends on live polling accumulating an
+  intraday path rather than on seeded history.
+- **Market Briefing is India-focused.** The headline feed is an Indian markets RSS
+  feed, labelled as such. THESIS does not claim comprehensive global news coverage.
+- **Session counts across mixed markets are approximate.** "N trading sessions in
+  this window" is derived from observed bars across everything a user watches; on a
+  date where one market trades and the other does not, the count can be off by one.
+  It is a sentence about the window, never an input to a verdict.
 - **Intraday resolution is 5 minutes.** A threshold crossing that reverses inside a
   single 5-minute bar is below our detection resolution and we do not claim otherwise.
 - **52-week levels are computed from adjusted closes, not intraday highs and lows.**
@@ -253,6 +384,9 @@ reproduces with `npm run detect`.
   requests from a residential IP produced no failures, but Yahoo throttles datacenter
   IPs harder and that test cannot speak for the deployment. The circuit breaker,
   replay adapter and never-cold-backfill rule are all treated as mandatory regardless.
+- **The Home greeting is computed on IST**, not on the viewer's local clock. It is
+  rendered on the server, and a client-side clock would flash the wrong greeting
+  before correcting itself; every market-data timestamp is exchange-local regardless.
 - **Free-tier market data is delayed** and is presented with its exchange timestamp
   rather than as real-time.
 
@@ -260,8 +394,7 @@ reproduces with `npm run detect`.
 
 ## Statements we stand behind
 
-> The core product is deterministic and fully functional without AI. The AI layer is
-> optional presentation garnish, not a system dependency.
+> The core product is deterministic and fully functional without AI. The AI layer is optional presentation garnish, not a system dependency.
 
 > Theses are structured and machine-verifiable rather than free-text. We never ask a
 > language model whether a user's reasoning still holds — every trigger and
