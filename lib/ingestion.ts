@@ -2,13 +2,14 @@ import "server-only";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, type DbExecutor } from "@/db";
 import {
-  corporateActions, ingestionBatches, priceBars, quoteObservations, quotes, symbolStats,
+  corporateActions, ingestionBatches, priceBars, quoteObservations, quotes, symbolStats, symbols,
 } from "@/db/schema";
 import { recordPollOutcome } from "@/lib/feed-health";
 import { detectCorporateAction, isCandidate, type CorporateActionCandidate } from "@/lib/corporate-actions";
 import { computeStats } from "@/lib/stats";
-import { BENCHMARK } from "@/lib/universe";
-import type { Bar, MarketDataProvider } from "@/lib/market/types";
+import { isBenchmarkSymbol } from "@/lib/securities";
+import { loadSecurities } from "@/lib/securities-server";
+import type { Bar, MarketDataProvider, Quote } from "@/lib/market/types";
 
 /**
  * Ingestion.
@@ -108,6 +109,8 @@ export async function ingestQuotes(
           });
       }
 
+      await refreshSecurityMetadata(tx, result.quotes);
+
       // `tx`, not `db` — see the transaction discipline note above.
       await recordPollOutcome(tx, result.quotes.map((q) => q.symbol), result.missing);
     });
@@ -126,6 +129,34 @@ export async function ingestQuotes(
   } catch (error) {
     await failBatch(batch.id, error);
     throw error;
+  }
+}
+
+/**
+ * Keeps each symbol's exchange, currency and timezone in step with the provider.
+ *
+ * Cheap and idempotent: a handful of single-row updates per poll on rows that
+ * already exist. It is what backfills `exchange_timezone` for symbols added
+ * before the column existed, and it is why a US security added today renders in
+ * America/New_York rather than in whatever the app assumed.
+ *
+ * Never inserts. A symbol the feed returns that we do not track is not ours to
+ * create here — `ingestQuotes` already reconciles that separately.
+ */
+async function refreshSecurityMetadata(executor: DbExecutor, found: Quote[]): Promise<void> {
+  for (const q of found) {
+    if (!q.name && !q.exchange && !q.currency && !q.timeZone) continue;
+    await executor
+      .update(symbols)
+      .set({
+        // COALESCE on the incoming side: a field the provider omitted this poll
+        // must not erase the value it gave us last time.
+        name: sql`coalesce(${q.name ?? null}, ${symbols.name})`,
+        exchange: sql`coalesce(${q.exchange ?? null}, ${symbols.exchange})`,
+        currency: sql`coalesce(${q.currency ?? null}, ${symbols.currency})`,
+        exchangeTimezone: sql`coalesce(${q.timeZone ?? null}, ${symbols.exchangeTimezone})`,
+      })
+      .where(eq(symbols.symbol, q.symbol));
   }
 }
 
@@ -227,16 +258,27 @@ async function storedBars(executor: DbExecutor, symbol: string): Promise<Bar[]> 
  *
  * Reads happen before the transaction; the transaction writes only.
  */
-export async function refreshSymbolStats(symbols: string[]): Promise<{ batchId: number; updated: number }> {
-  const batch = await openBatch(symbols.length);
+export async function refreshSymbolStats(symbolList: string[]): Promise<{ batchId: number; updated: number }> {
+  const batch = await openBatch(symbolList.length);
   try {
-    const benchmark = await storedBars(db, BENCHMARK);
+    // Beta is measured against the security's OWN market index. A US stock's
+    // beta to NIFTY 50 would be a number with no meaning, and it would then flow
+    // into the residual signal as if it meant something.
+    const securities = await loadSecurities(symbolList);
+    const benchmarkBars = new Map<string, Bar[]>();
+    for (const benchmark of new Set([...securities.values()].map((s) => s.benchmark).filter((b): b is string => b != null))) {
+      benchmarkBars.set(benchmark, await storedBars(db, benchmark));
+    }
+
     const computed: { symbol: string; stats: ReturnType<typeof computeStats> }[] = [];
-    for (const symbol of symbols) {
-      if (symbol === BENCHMARK) continue;
+    for (const symbol of symbolList) {
+      if (isBenchmarkSymbol(symbol)) continue;
       const bars = await storedBars(db, symbol);
       if (bars.length === 0) continue;
-      computed.push({ symbol, stats: computeStats(bars, benchmark) });
+      const benchmark = securities.get(symbol)?.benchmark;
+      // No index history for this market: beta comes back null and every
+      // benchmark-relative claim downstream stays unavailable rather than wrong.
+      computed.push({ symbol, stats: computeStats(bars, benchmark ? benchmarkBars.get(benchmark) ?? [] : []) });
     }
 
     const now = new Date();

@@ -16,6 +16,7 @@ import {
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull(),
+  displayName: text("display_name"), // Nullable for accounts created before named signup.
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("users_email_idx").on(t.email)]);
@@ -35,10 +36,16 @@ export const sessions = pgTable("sessions", {
  * cost O(unique symbols) rather than O(users × symbols).
  */
 export const symbols = pgTable("symbols", {
-  symbol: text("symbol").primaryKey(),          // Yahoo form, e.g. RELIANCE.NS
+  symbol: text("symbol").primaryKey(),          // Yahoo form, e.g. RELIANCE.NS or AAPL
   name: text("name"),
-  exchange: text("exchange"),
-  currency: text("currency"),
+  exchange: text("exchange"),                   // Display form: NSE, BSE, NASDAQ, NYSE
+  currency: text("currency"),                   // Native trading currency. Never converted.
+  /**
+   * IANA zone the exchange keeps its clock in, as the provider reports it.
+   * Nullable: rows predating this column fall back to inference from exchange
+   * and currency (lib/securities.ts), and the next poll fills them in.
+   */
+  exchangeTimezone: text("exchange_timezone"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 
   // --- feed health -------------------------------------------------------

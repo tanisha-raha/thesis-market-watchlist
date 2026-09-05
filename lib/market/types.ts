@@ -7,13 +7,20 @@ export type Quote = {
   /** The exchange's own timestamp, not our fetch time. Freshness lives here. */
   asOf: Date;
   marketState: string | null;
+  /** Native trading currency, from the provider. Never converted. */
   currency: string | null;
   name: string | null;
+  /** Display exchange — NSE, BSE, NASDAQ, NYSE — normalised from the provider. */
   exchange: string | null;
+  /**
+   * IANA zone the exchange keeps its own clock in. Persisted, because "as of
+   * 15:30 IST" on a NASDAQ quote is not a rounding error, it is a wrong claim.
+   */
+  timeZone: string | null;
 };
 
 export type Bar = {
-  /** IST trading date, YYYY-MM-DD. A calendar fact, not an instant. */
+  /** Exchange-local trading date, YYYY-MM-DD. A calendar fact, not an instant. */
   date: string;
   open: number | null;
   high: number | null;
@@ -26,7 +33,10 @@ export type Bar = {
 export type SearchResult = {
   symbol: string;
   name: string | null;
+  /** Display exchange: NSE, BSE, NASDAQ, NYSE. */
   exchange: string | null;
+  /** "India" / "US". Null when the provider gave us an exchange we cannot place. */
+  market: string | null;
 };
 
 /**

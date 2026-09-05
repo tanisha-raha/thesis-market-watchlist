@@ -5,6 +5,7 @@ import { quotes, symbols, theses, watchlistItems } from "@/db/schema";
 import { liveProvider } from "@/lib/market/live";
 import { classify, type FeedHealth } from "@/lib/feed-health";
 import { isUniqueViolation } from "@/lib/db-errors";
+import { describeSecurity, type Security } from "@/lib/securities";
 
 /** `excluded.<col>` in an ON CONFLICT DO UPDATE — the row Postgres tried to insert. */
 const sqlExcluded = (col: string) => sql.raw(`excluded.${col}`);
@@ -12,6 +13,14 @@ const sqlExcluded = (col: string) => sql.raw(`excluded.${col}`);
 export type WatchlistRow = {
   symbol: string;
   name: string | null;
+  /**
+   * Exchange, market, native currency and exchange timezone for this row.
+   *
+   * Carried per row rather than assumed per app: one watchlist can hold INFY.NS
+   * in ₹ on NSE time and AAPL in $ on NASDAQ time, and each has to render in its
+   * own units or the page is lying about one of them.
+   */
+  security: Security;
   addedAt: Date;
   price: number | null;
   previousClose: number | null;
@@ -43,6 +52,9 @@ export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
       symbol: watchlistItems.symbol,
       addedAt: watchlistItems.createdAt,
       name: symbols.name,
+      exchange: symbols.exchange,
+      currency: symbols.currency,
+      timeZone: symbols.exchangeTimezone,
       misses: symbols.consecutiveFeedMisses,
       price: quotes.price,
       previousClose: quotes.previousClose,
@@ -63,6 +75,10 @@ export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
     return {
       symbol: row.symbol,
       name: row.name,
+      security: describeSecurity({
+        symbol: row.symbol, name: row.name, exchange: row.exchange,
+        currency: row.currency, timeZone: row.timeZone,
+      }),
       addedAt: row.addedAt,
       price,
       previousClose: prev,
@@ -84,6 +100,12 @@ export type AddResult = { ok: true; watchlistItemId: number } | { ok: false; err
  * Validates against the live feed first: an unresolvable symbol must never enter
  * the watchlist, because from that moment on the product would be claiming to
  * monitor something it cannot see.
+ *
+ * Deliberately NOT restricted to an exchange allowlist. Search surfaces the
+ * exchanges we have validated; this accepts anything the provider can actually
+ * quote, and stores the exchange, currency and timezone it reports, so a symbol
+ * we did not anticipate degrades into "rendered in its own units" rather than
+ * into "rendered as if it were Indian".
  */
 export async function addSymbol(userId: number, rawSymbol: string): Promise<AddResult> {
   const symbol = rawSymbol.trim().toUpperCase();
@@ -96,7 +118,7 @@ export async function addSymbol(userId: number, rawSymbol: string): Promise<AddR
   } catch {
     return { ok: false, error: "Market data is unavailable right now. Try again in a moment." };
   }
-  if (!resolved) return { ok: false, error: `We could not resolve ${symbol} on NSE.` };
+  if (!resolved) return { ok: false, error: `We could not resolve ${symbol} with our market data provider.` };
 
   await db.insert(symbols)
     .values({
@@ -104,11 +126,21 @@ export async function addSymbol(userId: number, rawSymbol: string): Promise<AddR
       name: resolved.name,
       exchange: resolved.exchange,
       currency: resolved.currency,
+      exchangeTimezone: resolved.timeZone,
       lastSeenInFeedAt: new Date(),
     })
     .onConflictDoUpdate({
       target: symbols.symbol,
-      set: { name: sqlExcluded("name"), lastSeenInFeedAt: sqlExcluded("last_seen_in_feed_at"), consecutiveFeedMisses: sql`0` },
+      set: {
+        name: sqlExcluded("name"),
+        // A symbol first seen through a seed file has no exchange metadata.
+        // Adding it fills those in without discarding anything we already knew.
+        exchange: sql`coalesce(${sqlExcluded("exchange")}, ${symbols.exchange})`,
+        currency: sql`coalesce(${sqlExcluded("currency")}, ${symbols.currency})`,
+        exchangeTimezone: sql`coalesce(${sqlExcluded("exchange_timezone")}, ${symbols.exchangeTimezone})`,
+        lastSeenInFeedAt: sqlExcluded("last_seen_in_feed_at"),
+        consecutiveFeedMisses: sql`0`,
+      },
     });
 
   // The validation fetch already produced a usable quote. Persisting it here is

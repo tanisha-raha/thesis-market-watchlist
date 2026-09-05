@@ -20,8 +20,13 @@ const DAYS = 730;
 type Row = [string, number | null, number | null, number | null, number | null, number | null, number | null];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const istDate = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
+/**
+ * Trading dates are keyed in the EXCHANGE's own zone, taken from the chart's
+ * metadata. Keying a US session by its IST date would push any bar stamped
+ * after 18:30 UTC onto the next calendar day and misalign the whole series.
+ */
+const dateIn = (zone: string) => new Intl.DateTimeFormat("en-CA", {
+  timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit",
 });
 
 function alreadyFetched(): Set<string> {
@@ -40,11 +45,13 @@ async function fetchOne(symbol: string, attempt = 1): Promise<Row[]> {
       period1: new Date(Date.now() - DAYS * 864e5),
       interval: "1d",
     });
+    const zone = (res.meta as { exchangeTimezoneName?: string } | undefined)?.exchangeTimezoneName ?? "Asia/Kolkata";
+    const tradingDate = dateIn(zone);
     return (res.quotes as unknown as {
       date: Date; open: number | null; high: number | null; low: number | null;
       close: number | null; volume: number | null; adjclose?: number | null;
     }[]).map((b) => [
-      istDate.format(new Date(b.date)),
+      tradingDate.format(new Date(b.date)),
       b.open, b.high, b.low, b.close, b.adjclose ?? null, b.volume,
     ]);
   } catch (err) {
