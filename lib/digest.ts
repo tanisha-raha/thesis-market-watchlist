@@ -7,7 +7,8 @@ import {
 } from "@/db/schema";
 import { lastCommittedBatchAt } from "@/lib/ingestion";
 import { deriveTradingCalendar } from "@/lib/market/calendar";
-import { istDate } from "@/lib/time";
+import { describeSecurity, formatMoney, type Security } from "@/lib/securities";
+import { exchangeDate, istDate } from "@/lib/time";
 import type { Bar } from "@/lib/market/types";
 
 /**
@@ -66,6 +67,8 @@ export type ContradictionCard = {
   thesisId: number;
   symbol: string;
   name: string | null;
+  /** Exchange, currency and clock for this security. Every card renders in its own units. */
+  security: Security;
   thesisType: string;
   prompt: string;
   note: string | null;
@@ -81,6 +84,7 @@ export type TriggerCard = {
   thesisId: number;
   symbol: string;
   name: string | null;
+  security: Security;
   thesisType: string;
   conditionText: string;
   note: string | null;
@@ -92,6 +96,7 @@ export type MissedCard = {
   kind: "missed";
   symbol: string;
   name: string | null;
+  security: Security;
   signalType: string;
   headline: string;
   occurredAt: Date;
@@ -109,6 +114,7 @@ export type AnomalyCard = {
   kind: "anomaly";
   symbol: string;
   name: string | null;
+  security: Security;
   signalType: string;
   occurredAt: Date;
   resolvedAt: Date | null;
@@ -125,7 +131,7 @@ export type Digest = {
   triggers: TriggerCard[];
   missed: MissedCard[];
   anomalies: AnomalyCard[];
-  unchanged: { symbol: string; name: string | null }[];
+  unchanged: { symbol: string; name: string | null; security: Security }[];
 };
 
 /* ------------------------------------------------------------- formatting */
@@ -134,10 +140,9 @@ const num = (v: unknown, digits = 2): string =>
   typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "—";
 const pct = (v: unknown, digits = 2): string =>
   typeof v === "number" && Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%` : "—";
-const rupees = (v: unknown): string =>
-  typeof v === "number" && Number.isFinite(v)
-    ? `₹${new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)}`
-    : "—";
+/** Money always renders in the security's own currency — never a global rupee. */
+const money = (v: unknown, currency: string | null): string =>
+  typeof v === "number" && Number.isFinite(v) ? formatMoney(v, currency) : "—";
 
 /**
  * Turns a stored explain payload into display rows.
@@ -145,12 +150,13 @@ const rupees = (v: unknown): string =>
  * Reads only what detection recorded. Nothing is recomputed: the numbers a user
  * sees are the numbers that were true when the claim was made.
  */
-export function evidenceFrom(explain: Record<string, unknown>): EvidenceEntry[] {
+export function evidenceFrom(explain: Record<string, unknown>, currency: string | null = "INR"): EvidenceEntry[] {
   const e: EvidenceEntry[] = [];
   const has = (k: string) => explain[k] != null;
+  const price = (v: unknown) => money(v, currency);
 
-  if (has("price")) e.push({ label: "Price", value: rupees(explain.price) });
-  if (has("close")) e.push({ label: "Close", value: rupees(explain.close) });
+  if (has("price")) e.push({ label: "Price", value: price(explain.price) });
+  if (has("close")) e.push({ label: "Close", value: price(explain.close) });
   if (has("return_pct")) e.push({ label: "Change", value: pct(explain.return_pct) });
   if (has("gap_pct")) e.push({ label: "Gap from previous close", value: pct(explain.gap_pct) });
   if (has("z_vs_20d_realized_vol")) {
@@ -170,11 +176,11 @@ export function evidenceFrom(explain: Record<string, unknown>): EvidenceEntry[] 
   if (has("level")) {
     e.push({
       label: "Level crossed",
-      value: rupees(explain.level),
+      value: price(explain.level),
       basis: typeof explain.level_source === "string" ? explain.level_source : undefined,
     });
   }
-  if (has("ma_20d")) e.push({ label: "20-day average", value: rupees(explain.ma_20d) });
+  if (has("ma_20d")) e.push({ label: "20-day average", value: price(explain.ma_20d) });
   if (has("volume") && has("median_volume_20d")) {
     e.push({
       label: "Volume",
@@ -183,10 +189,16 @@ export function evidenceFrom(explain: Record<string, unknown>): EvidenceEntry[] 
     });
   }
   if (has("benchmark_return_pct")) {
-    e.push({ label: "NIFTY", value: pct(explain.benchmark_return_pct) });
+    // The benchmark is whatever detection actually measured against, recorded in
+    // the event. Never relabelled after the fact.
+    e.push({ label: typeof explain.benchmark === "string" ? explain.benchmark : "Benchmark", value: pct(explain.benchmark_return_pct) });
   }
   if (has("beta_60d")) {
-    e.push({ label: "Beta", value: num(explain.beta_60d), basis: "60-day, vs ^NSEI" });
+    e.push({
+      label: "Beta",
+      value: num(explain.beta_60d),
+      basis: typeof explain.benchmark === "string" ? `60-day, vs ${explain.benchmark}` : "60-day, vs benchmark",
+    });
   }
   if (has("expected_from_benchmark_pct")) {
     e.push({ label: "Expected from market", value: pct(explain.expected_from_benchmark_pct) });
@@ -202,14 +214,14 @@ const CONDITION_LABELS: Record<string, string> = {
   price_above_20d_ma: "Price above 20-day average",
   "20d_return_negative": "20-day return negative",
   "20d_return_positive": "20-day return positive",
-  residual_negative_over_20d: "Residual vs NIFTY negative",
-  residual_positive_over_20d: "Residual vs NIFTY positive",
-  residual_negative_over_10d: "Residual vs NIFTY negative (10 sessions)",
+  residual_negative_over_20d: "Residual vs benchmark negative",
+  residual_positive_over_20d: "Residual vs benchmark positive",
+  residual_negative_over_10d: "Residual vs benchmark negative (10 sessions)",
   close_below_20d_ma: "Close below 20-day average",
   failed_breakout: "Failed breakout",
   price_moved_away_from_range: "Price moved away from your range",
   volatility_doubled_since_creation: "Volatility doubled since you wrote this",
-  "benchmark_relative_residual_below_-5pct": "Residual vs NIFTY below −5%",
+  "benchmark_relative_residual_below_-5pct": "Residual vs benchmark below −5%",
   volume_below_median_for_3_sessions: "Volume below median, 3 sessions",
   price_unchanged_within_1pct: "Price unchanged within 1%",
 };
@@ -290,6 +302,9 @@ export async function getDigest(userId: number): Promise<Digest> {
       symbol: watchlistItems.symbol,
       addedAt: watchlistItems.createdAt,
       name: symbols.name,
+      exchange: symbols.exchange,
+      currency: symbols.currency,
+      timeZone: symbols.exchangeTimezone,
       thesisId: theses.id,
       thesisType: theses.type,
       thesisNote: theses.note,
@@ -311,6 +326,12 @@ export async function getDigest(userId: number): Promise<Digest> {
     contradictions: [], triggers: [], missed: [], anomalies: [], unchanged: [],
   };
   if (items.length === 0) return empty;
+
+  // Exchange, currency and clock per watched security, resolved once. Every card
+  // below renders through this rather than through a global assumption.
+  const securityFor = new Map(items.map((i) => [i.symbol, describeSecurity({
+    symbol: i.symbol, name: i.name, exchange: i.exchange, currency: i.currency, timeZone: i.timeZone,
+  })]));
 
   // A new symbol's watermark is when it was added — we do not replay three
   // months of history at someone who just started watching.
@@ -344,6 +365,12 @@ export async function getDigest(userId: number): Promise<Digest> {
   // "Market closed since your last visit" is a different statement from "no
   // changes", and the calendar is derived from observed bars rather than a
   // hardcoded holiday list.
+  //
+  // Across a mixed watchlist this is a session COUNT over the union of the
+  // markets watched, bounded by IST dates — it is a sentence about the window,
+  // not an input to any verdict. Nothing downstream branches on it, so an
+  // Indian-holiday/US-session edge date shifts a count by one rather than
+  // changing what the digest reports.
   const calendar = deriveTradingCalendar([...barsBySymbol.values()]);
   const fromDate = istDate(awayFrom);
   const untilDate = istDate(cutoff);
@@ -376,6 +403,7 @@ export async function getDigest(userId: number): Promise<Digest> {
 
     const evidence = ev.evidenceJson as Record<string, unknown>;
     const params = (item.thesisParams ?? {}) as Record<string, number>;
+    const security = securityFor.get(item.symbol)!;
 
     if (ev.kind === "contradicted") {
       const raw = (evidence.conditions ?? []) as Record<string, unknown>[];
@@ -384,6 +412,7 @@ export async function getDigest(userId: number): Promise<Digest> {
         thesisId: ev.thesisId,
         symbol: item.symbol,
         name: item.name,
+        security,
         thesisType: item.thesisType ?? "none",
         prompt: promptFor(item.thesisType ?? "none"),
         note: item.thesisNote,
@@ -396,7 +425,7 @@ export async function getDigest(userId: number): Promise<Digest> {
           met: Boolean(c.met),
           detail: conditionDetail(c),
         })),
-        evidence: evidenceFrom(evidence),
+        evidence: evidenceFrom(evidence, security.currency),
       });
     } else if (ev.kind === "triggered") {
       triggers.push({
@@ -404,11 +433,12 @@ export async function getDigest(userId: number): Promise<Digest> {
         thesisId: ev.thesisId,
         symbol: item.symbol,
         name: item.name,
+        security,
         thesisType: item.thesisType ?? "none",
-        conditionText: conditionTextFor(item.thesisType ?? "none", params),
+        conditionText: conditionTextFor(item.thesisType ?? "none", params, security.currency),
         note: item.thesisNote,
         occurredAt: ev.occurredAt,
-        evidence: evidenceFrom(evidence),
+        evidence: evidenceFrom(evidence, security.currency),
       });
     }
   }
@@ -436,6 +466,7 @@ export async function getDigest(userId: number): Promise<Digest> {
     const item = items.find((i) => i.symbol === ev.symbol);
     if (!item) continue;
     const explain = ev.explainJson as Record<string, unknown>;
+    const security = securityFor.get(ev.symbol)!;
     const watermark = watermarkFor.get(ev.symbol)!;
     // Same rule for change events: seen is a per-symbol fact.
     if (ev.occurredAt.getTime() < watermark.getTime()) continue;
@@ -453,12 +484,16 @@ export async function getDigest(userId: number): Promise<Digest> {
       openMinutes <= MISSED_MAX_OPEN_MINUTES;
 
     if (isMissed) {
-      const date = istDate(ev.occurredAt);
+      // Which session an intraday event belongs to is an exchange-local fact: a
+      // NASDAQ event at 19:00 UTC is that day's session, and dating it in IST
+      // would look up the wrong daily bar entirely.
+      const date = exchangeDate(ev.occurredAt, security.timeZone);
       const close = closeByKey.get(`${ev.symbol}|${date}`) ?? null;
       missedAll.push({
         kind: "missed",
         symbol: ev.symbol,
         name: item.name,
+        security,
         signalType: ev.signalType,
         headline: SIGNAL_HEADLINES[ev.signalType] ?? ev.signalType.replace(/_/g, " "),
         occurredAt: ev.occurredAt,
@@ -468,7 +503,7 @@ export async function getDigest(userId: number): Promise<Digest> {
         awayUntil: cutoff,
         dailyBlindSpot: dailyBlindSpot(ev.signalType, explain, close),
         peak: typeof explain.price === "number" ? explain.price : null,
-        evidence: evidenceFrom(explain),
+        evidence: evidenceFrom(explain, security.currency),
       });
       noteworthy.add(ev.symbol);
       continue;
@@ -482,10 +517,11 @@ export async function getDigest(userId: number): Promise<Digest> {
         kind: "anomaly",
         symbol: ev.symbol,
         name: item.name,
+        security,
         signalType: ev.signalType,
         occurredAt: ev.occurredAt,
         resolvedAt: ev.resolvedAt,
-        evidence: evidenceFrom(explain),
+        evidence: evidenceFrom(explain, security.currency),
       });
       noteworthy.add(ev.symbol);
     }
@@ -512,7 +548,7 @@ export async function getDigest(userId: number): Promise<Digest> {
 
   const unchanged = items
     .filter((i) => !noteworthy.has(i.symbol))
-    .map((i) => ({ symbol: i.symbol, name: i.name }));
+    .map((i) => ({ symbol: i.symbol, name: i.name, security: securityFor.get(i.symbol)! }));
 
   return {
     awayFrom,
@@ -539,11 +575,11 @@ function promptFor(type: string): string {
   }[type] ?? type;
 }
 
-function conditionTextFor(type: string, params: Record<string, number>): string {
+function conditionTextFor(type: string, params: Record<string, number>, currency: string | null): string {
   if (type === "price_range" && params.low != null && params.high != null) {
-    return `between ${rupees(params.low)} and ${rupees(params.high)}`;
+    return `between ${money(params.low, currency)} and ${money(params.high, currency)}`;
   }
-  if (type === "breakout" && params.level != null) return `a breakout above ${rupees(params.level)}`;
+  if (type === "breakout" && params.level != null) return `a breakout above ${money(params.level, currency)}`;
   return promptFor(type).toLowerCase();
 }
 

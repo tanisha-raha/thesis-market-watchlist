@@ -1,5 +1,6 @@
-import { istDate } from "./time";
+import { exchangeDate, zonedInstant } from "./time";
 import { isTradedEquityBar } from "./market/calendar";
+import { REGIONS, type RegionInfo } from "./securities";
 import type { Bar } from "./market/types";
 import type { SymbolStats } from "./stats";
 
@@ -171,6 +172,20 @@ export type DetectionInput = {
   dailyBars: Bar[];
   /** Benchmark daily bars, for the relative residual. */
   benchmarkBars: Bar[];
+  /**
+   * Which index those bars are. Null means we have no honest benchmark for this
+   * security — a US stock with no US index history, say — and the
+   * benchmark-relative signal is then withheld rather than computed against
+   * whatever series happened to be passed in. Comparing AAPL to NIFTY 50 would
+   * produce a confident number about nothing.
+   */
+  benchmark?: string | null;
+  /**
+   * The market this security trades in: its clock and session hours. Daily
+   * signals are dated facts that have to become instants, and "the 4 Sep
+   * session closed at 10:00 UTC" is only true on the NSE.
+   */
+  market?: RegionInfo;
   /** Ignore anything before this instant. */
   since?: Date;
 };
@@ -220,6 +235,9 @@ function intradaySignals(input: DetectionInput): DetectedEvent[] {
   const { stats, observations } = input;
   const vol = finite(stats.realizedVol20) && stats.realizedVol20 > 0 ? stats.realizedVol20 : null;
   const prevCloseFor = previousCloseByDate(input.dailyBars);
+  // Which trading date an observation belongs to is an exchange-local question.
+  // A NASDAQ tick at 19:00 UTC is that day's session; in IST it is tomorrow.
+  const market = input.market ?? REGIONS.IN;
   const since = input.since?.getTime() ?? -Infinity;
 
   const points = observations
@@ -272,7 +290,7 @@ function intradaySignals(input: DetectionInput): DetectedEvent[] {
   if (vol) {
     const samples: Sample[] = [];
     for (const p of points) {
-      const prevClose = prevCloseFor.get(istDate(p.at));
+      const prevClose = prevCloseFor.get(exchangeDate(p.at, market.timeZone));
       if (!finite(prevClose) || prevClose <= 0) continue;
       const ret = p.price / prevClose - 1;
       const z = ret / vol;                       // window is one day, so √1
@@ -338,8 +356,11 @@ function dailySignals(input: DetectionInput): DetectedEvent[] {
   const bars = input.dailyBars.filter(isTradedEquityBar);
   const events: DetectedEvent[] = [];
 
-  /** A session's close is timestamped at the NSE close, 15:30 IST = 10:00 UTC. */
-  const sessionInstant = (date: string) => new Date(`${date}T10:00:00.000Z`);
+  // A session's close is timestamped at that exchange's own close: 15:30 IST for
+  // the NSE, 16:00 ET for the US market. Zone-aware, so a December NASDAQ close
+  // lands an hour later in UTC than a September one, as it actually does.
+  const market = input.market ?? REGIONS.IN;
+  const sessionInstant = (date: string) => zonedInstant(date, market.timeZone, ...market.sessionClose);
 
   // --- volume anomaly ---------------------------------------------------------
   if (finite(stats.medianVolume20) && stats.medianVolume20 > 0) {
@@ -382,7 +403,7 @@ function dailySignals(input: DetectionInput): DetectedEvent[] {
       const gap = open / prevClose - 1;
       const z = gap / vol;
       if (Math.abs(z) < Z_FIRE) continue;
-      const at = new Date(`${b.date}T03:45:00.000Z`);   // 09:15 IST open
+      const at = zonedInstant(b.date, market.timeZone, ...market.sessionOpen);
       if (at.getTime() < since) continue;
       events.push({
         signalType: "overnight_gap",
@@ -407,8 +428,10 @@ function dailySignals(input: DetectionInput): DetectedEvent[] {
   }
 
   // --- benchmark-relative residual -------------------------------------------
-  // If the market moved and the stock followed, that is not a signal.
-  if (vol && finite(stats.beta60)) {
+  // If the market moved and the stock followed, that is not a signal. Withheld
+  // entirely when we have no benchmark for this security's market: a missing
+  // signal is a smaller failure than a fabricated one.
+  if (vol && finite(stats.beta60) && input.benchmark && input.benchmarkBars.length > 0) {
     const beta = stats.beta60;
     const benchByDate = new Map<string, number>();
     for (const b of input.benchmarkBars) {
@@ -446,7 +469,7 @@ function dailySignals(input: DetectionInput): DetectedEvent[] {
           signal: "benchmark_residual",
           trading_date: b.date,
           stock_return_pct: rStock * 100,
-          benchmark: "^NSEI",
+          benchmark: input.benchmark,
           benchmark_return_pct: rIndex * 100,
           beta_60d: beta,
           expected_from_benchmark_pct: beta * rIndex * 100,

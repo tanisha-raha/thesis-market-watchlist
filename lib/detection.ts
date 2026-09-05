@@ -3,7 +3,8 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { changeEvents, ingestionBatches, priceBars, quoteObservations, symbolStats } from "@/db/schema";
 import { detectEvents, type DetectedEvent, type Observation } from "@/lib/change-engine";
-import { BENCHMARK } from "@/lib/universe";
+import { REGIONS, isBenchmarkSymbol } from "@/lib/securities";
+import { loadSecurities } from "@/lib/securities-server";
 import type { Bar } from "@/lib/market/types";
 import type { SymbolStats } from "@/lib/stats";
 
@@ -102,28 +103,50 @@ export type DetectionSummary = {
 export const DETECTION_WINDOW_DAYS = 60;
 
 export async function runDetection(
-  symbols: string[],
+  symbolList: string[],
   options: { sinceDays?: number } = {},
 ): Promise<DetectionSummary> {
   const since = new Date(Date.now() - (options.sinceDays ?? DETECTION_WINDOW_DAYS) * 864e5);
   const [batch] = await db
     .insert(ingestionBatches)
-    .values({ status: "STARTED", requestedCount: symbols.length, failureSummary: "detection" })
+    .values({ status: "STARTED", requestedCount: symbolList.length, failureSummary: "detection" })
     .returning();
 
   try {
-    const benchmarkBars = await loadBars(BENCHMARK);
+    // Benchmark bars are loaded once per market, not once per symbol, and a
+    // market whose index we hold no history for simply has none — the engine
+    // then withholds benchmark-relative evidence for its securities instead of
+    // measuring them against the wrong index.
+    //
+    // ORDERING. Market metadata comes from the quote feed, so the ingestion
+    // route polls before it detects: a symbol seeded from a file but never yet
+    // quoted has no exchange recorded, and would fall back to the Indian
+    // session clock. Poll first, then detect.
+    const securities = await loadSecurities(symbolList);
+    const benchmarkBars = new Map<string, Bar[]>();
+    for (const benchmark of new Set([...securities.values()].map((s) => s.benchmark).filter((b): b is string => b != null))) {
+      benchmarkBars.set(benchmark, await loadBars(benchmark));
+    }
+
     const perSymbol: { symbol: string; events: DetectedEvent[] }[] = [];
 
-    for (const symbol of symbols) {
-      if (symbol === BENCHMARK) continue;
+    for (const symbol of symbolList) {
+      if (isBenchmarkSymbol(symbol)) continue;
       const stats = await loadStats(symbol);
       if (!stats) continue;                       // no stats yet: nothing to normalize against
       const [dailyBars, observations] = await Promise.all([loadBars(symbol), loadObservations(symbol)]);
       if (dailyBars.length === 0 && observations.length === 0) continue;
+      const security = securities.get(symbol)!;
+      const bars = security.benchmark ? benchmarkBars.get(security.benchmark) ?? [] : [];
       perSymbol.push({
         symbol,
-        events: detectEvents({ symbol, stats, observations, dailyBars, benchmarkBars, since }),
+        events: detectEvents({
+          symbol, stats, observations, dailyBars,
+          benchmarkBars: bars,
+          benchmark: bars.length > 0 ? security.benchmark : null,
+          market: security.region ? REGIONS[security.region] : undefined,
+          since,
+        }),
       });
     }
 

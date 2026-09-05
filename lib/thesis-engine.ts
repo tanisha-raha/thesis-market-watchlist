@@ -1,5 +1,8 @@
 import { isTradedEquityBar } from "./market/calendar";
+import { REGIONS, formatMoney, type RegionInfo } from "./securities";
+import { zonedInstant } from "./time";
 import type { Bar } from "./market/types";
+import { BREAKOUT_VOLUME_MULTIPLE, breakoutConfirmed, medianVolume, priceInRange } from "./thesis-conditions";
 
 /**
  * The thesis engine.
@@ -73,6 +76,14 @@ export type ThesisInput = {
   /** |z| >= 2 anomalies from the change engine, for volatility_watch. */
   anomalies: { occurredAt: Date; magnitude: number; signalType: string }[];
   beta: number | null;
+  /**
+   * The security's native currency, so a stored condition reads back in the
+   * units the user typed it in: "between $150 and $180", never "$180" rendered
+   * as rupees. Defaults to INR for the Indian universe this started as.
+   */
+  currency?: string | null;
+  /** The security's market: its clock and session hours. Defaults to India. */
+  market?: RegionInfo;
   /** Overridable so calibration can sweep the noise floor rather than guess it. */
   tuning?: { noiseFloorSigmas?: number };
 };
@@ -125,7 +136,6 @@ const MA_BAND = 0.005;
 const VOL_CONTRADICTION_MULTIPLE = 2;      // realized vol above 2x its level at creation
 const RESIDUAL_CONTRADICTION_PCT = -5;     // 20D benchmark-relative residual below -5%
 const RANGE_ESCAPE_MULTIPLE = 1.5;         // price moved 1.5x the range gap away
-const BREAKOUT_VOLUME_MULTIPLE = 1.5;      // breakout needs volume confirmation
 const FAILED_BREAKOUT_PCT = -3;            // touched the level then closed 3% below
 const VOLUME_EXPANSION_MULTIPLE = 2;
 const VOLUME_EXPANSION_SESSIONS = 2;
@@ -147,8 +157,12 @@ function sessions(bars: Bar[]): { date: string; close: number; volume: number | 
     .filter((s): s is { date: string; close: number; volume: number | null; bar: Bar } => s.close != null);
 }
 
-/** Sessions are dated; verdicts are instants. NSE closes at 15:30 IST = 10:00 UTC. */
-const sessionInstant = (date: string) => new Date(`${date}T10:00:00.000Z`);
+/**
+ * Sessions are dated; verdicts are instants. Each exchange closes on its own
+ * clock — 15:30 IST, 16:00 ET — so the conversion is per market, not global.
+ */
+const sessionInstantIn = (market: RegionInfo) =>
+  (date: string) => zonedInstant(date, market.timeZone, ...market.sessionClose);
 
 function movingAverage(closes: number[], window: number): number | null {
   if (closes.length < window) return null;
@@ -246,6 +260,9 @@ export function evaluateThesis(input: ThesisInput): ThesisVerdict[] {
   if (input.type === "none") return [];
 
   const floor = input.createdAt.getTime();
+  const market = input.market ?? REGIONS.IN;
+  const sessionInstant = sessionInstantIn(market);
+  const money = (value: number) => formatMoney(value, input.currency ?? "INR");
   const all = sessions(input.dailyBars);
   // CREATION FLOOR. Data before the thesis existed is context for computing
   // windows, but nothing before it may ever produce a verdict.
@@ -271,7 +288,7 @@ export function evaluateThesis(input: ThesisInput): ThesisVerdict[] {
     const { low, high } = input.params as { low: number; high: number };
     // First entry into the range after creation. Intraday, so a dip that is
     // bought back within the session still counts as the condition being met.
-    const hit = observations.find((o) => o.price >= low && o.price <= high);
+    const hit = observations.find((o) => priceInRange(o.price, low, high));
     if (hit) {
       verdicts.push({
         kind: "triggered",
@@ -279,7 +296,7 @@ export function evaluateThesis(input: ThesisInput): ThesisVerdict[] {
         conditionsMet: ["price_entered_range"],
         evidence: {
           thesis: "price_range",
-          your_condition: `between ₹${low} and ₹${high}`,
+          your_condition: `between ${money(low)} and ${money(high)}`,
           price: hit.price,
           range_low: low,
           range_high: high,
@@ -299,7 +316,7 @@ export function evaluateThesis(input: ThesisInput): ThesisVerdict[] {
       const median = medianVolume(all, s.date, 20);
       if (!finite(median) || median <= 0 || !finite(s.volume)) continue;
       const ratio = s.volume / median;
-      if (s.close > level && ratio >= BREAKOUT_VOLUME_MULTIPLE) {
+      if (breakoutConfirmed(s.close, level, s.volume, median)) {
         const at = sessionInstant(s.date);
         if (!passesCooldown(at, "triggered", 2, input, lastTrigger)) continue;
         verdicts.push({
@@ -308,7 +325,7 @@ export function evaluateThesis(input: ThesisInput): ThesisVerdict[] {
           conditionsMet: ["closed_above_level", "volume_confirmed"],
           evidence: {
             thesis: "breakout",
-            your_condition: `a breakout above ₹${level}`,
+            your_condition: `a breakout above ${money(level)}`,
             trading_date: s.date,
             close: s.close,
             level,
@@ -526,18 +543,6 @@ export function evaluateThesis(input: ThesisInput): ThesisVerdict[] {
   }
 
   return verdicts.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
-}
-
-/** 20-session median volume as of a given date. */
-function medianVolume(all: { date: string; volume: number | null }[], asOf: string, window: number): number | null {
-  const vols = all
-    .filter((s) => s.date <= asOf && finite(s.volume) && s.volume > 0)
-    .slice(-window)
-    .map((s) => s.volume!);
-  if (vols.length === 0) return null;
-  const sorted = [...vols].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /**

@@ -6,7 +6,8 @@ import {
   thesisEvents, userSymbolReadState, watchlistItems,
 } from "@/db/schema";
 import { evaluateThesis, resolveState, type ThesisParams, type ThesisType } from "@/lib/thesis-engine";
-import { BENCHMARK } from "@/lib/universe";
+import { loadSecurities } from "@/lib/securities-server";
+import { REGIONS } from "@/lib/securities";
 import type { Bar } from "@/lib/market/types";
 
 /** Persistence and lifecycle for theses. Evaluation itself is pure, in thesis-engine.ts. */
@@ -108,10 +109,20 @@ export async function runThesisEvaluation(): Promise<{ evaluated: number; record
 
   if (rows.length === 0) return { evaluated: 0, recorded: 0 };
 
-  const benchmarkBars = await loadBars(BENCHMARK);
+  // One benchmark series per market, loaded once. A security whose market index
+  // we hold no history for gets an empty series: the residual conditions then
+  // simply cannot be met, which is the honest outcome — never NIFTY standing in
+  // for the S&P.
+  const symbolList = [...new Set(rows.map((r) => r.symbol))];
+  const securities = await loadSecurities(symbolList);
+  const benchmarks = new Map<string, Bar[]>();
+  for (const benchmark of new Set([...securities.values()].map((s) => s.benchmark).filter((b): b is string => b != null))) {
+    benchmarks.set(benchmark, await loadBars(benchmark));
+  }
+
   const bySymbol = new Map<string, { bars: Bar[]; obs: { at: Date; price: number }[]; anomalies: { occurredAt: Date; magnitude: number; signalType: string }[]; beta: number | null }>();
 
-  for (const symbol of new Set(rows.map((r) => r.symbol))) {
+  for (const symbol of symbolList) {
     const [stats] = await db.select().from(symbolStats).where(eq(symbolStats.symbol, symbol)).limit(1);
     bySymbol.set(symbol, {
       bars: await loadBars(symbol),
@@ -132,6 +143,7 @@ export async function runThesisEvaluation(): Promise<{ evaluated: number; record
     const prior = await db.select({ kind: thesisEvents.kind, occurredAt: thesisEvents.occurredAt })
       .from(thesisEvents).where(eq(thesisEvents.thesisId, t.id));
 
+    const security = securities.get(t.symbol)!;
     const verdicts = evaluateThesis({
       type: t.type as ThesisType,
       params: t.params as ThesisParams,
@@ -139,10 +151,12 @@ export async function runThesisEvaluation(): Promise<{ evaluated: number; record
       lastAcknowledgedAt: t.lastAcknowledgedAt,
       priorEvents: prior,
       dailyBars: ctx.bars,
-      benchmarkBars,
+      benchmarkBars: security.benchmark ? benchmarks.get(security.benchmark) ?? [] : [],
       observations: ctx.obs,
       anomalies: ctx.anomalies,
       beta: ctx.beta,
+      currency: security.currency,
+      market: security.region ? REGIONS[security.region] : undefined,
     });
 
     for (const v of verdicts) {
