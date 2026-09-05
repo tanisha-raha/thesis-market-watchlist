@@ -1,169 +1,167 @@
-/**
- * Drives the slice in a real browser: sign up, add, see a price, remove.
- * The service layer is covered by scripts/smoke.ts; this covers the UI.
- *
- * Run: npx tsx scripts/browser-check.ts [baseUrl]
- */
-import { chromium } from "playwright";
-
-const base = process.argv[2] ?? "http://localhost:3000";
-const email = `browser+${Date.now()}@example.com`;
-let failed = 0;
-const check = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "✓" : "✗"} ${label}${detail && ` — ${detail}`}`);
-  if (!cond) failed++;
-};
-
+/** Real authenticated product journey. Never substitutes financial fixtures for provider data. */
+import { chromium, expect } from "playwright/test";
+const base = (process.argv[2] ?? "http://localhost:3100").replace(/\/$/, "");
+const email = `browser+${Date.now()}@example.com`, password = "hunter2hunter2";
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+const page = await browser.newPage({ viewport: { width: 1536, height: 864 } });
 const errors: string[] = [];
-page.on("pageerror", (e) => errors.push(String(e)));
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
-
-console.log(`\ntarget: ${base}`);
-
-await page.goto(base);
-check("unauthenticated visit lands on /login", page.url().endsWith("/login"), page.url());
-
-console.log("\nsign up");
-await page.getByRole("button", { name: "Create account" }).first().click();
-await page.locator('input[name="email"]').fill(email);
-await page.locator('input[name="password"]').fill("hunter2hunter2");
-await Promise.all([
-  page.waitForURL("**/digest", { timeout: 30_000 }),
-  page.getByRole("button", { name: "Create account" }).last().click(),
-]);
-check("signup lands on /digest", page.url().includes("/digest"), page.url());
-check("shows the signed-in email", await page.getByText(email).isVisible());
-const primaryNav = page.getByRole("navigation", { name: "Main navigation" });
-const askTrigger = primaryNav.getByRole("button", { name: "Ask THESIS" });
-check("Ask THESIS is visible in primary desktop navigation", await askTrigger.isVisible());
-await askTrigger.click();
-check("Ask THESIS opens for an authenticated user", await page.getByRole("region", { name: "Ask THESIS", exact: true }).isVisible());
-await page.getByRole("button", { name: "What changed while I was away?" }).click();
-await page.getByText(/THESIS has no new detected changes|THESIS found/).waitFor({ timeout: 15_000 });
-await page.getByLabel("Ask THESIS a question").fill("Should I buy INFY?");
-await page.getByRole("button", { name: "Send" }).click();
-await page.getByText(/can’t recommend whether you should buy, sell, or hold/).waitFor({ timeout: 15_000 });
-await page.getByRole("button", { name: "Close Ask THESIS" }).click();
-await primaryNav.getByRole("link", { name: "Watchlist", exact: true }).click();
-await page.waitForURL("**/watchlist");
-check("Ask THESIS is visible on Watchlist", await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Ask THESIS" }).isVisible());
-check("empty state shown", await page.getByText("Nothing on your watchlist yet").isVisible());
-
-console.log("\nadd a symbol");
-await page.getByRole("button", { name: "Add Stock", exact: true }).click();
-const symbolInput = page.locator('input[name="symbol"][autocomplete="off"]');
-await symbolInput.fill("RELIANCE.NS");
-await page.getByRole("button", { name: "Add", exact: true }).click();
-const removeReliance = page.getByRole("button", { name: "Remove RELIANCE.NS" });
-await removeReliance.waitFor({ state: "visible", timeout: 40_000 });
-check("symbol appears in the list", await removeReliance.isVisible());
-
-const body = await page.locator("body").innerText();
-check("a rupee price is rendered", /₹[\d,]+\.\d{2}/.test(body), body.match(/₹[\d,]+\.\d{2}/)?.[0]);
-check("change vs previous close shown", /vs prev close/.test(body));
-check("freshness is stated", /just now|min ago|\dh ago|market closed|no quote yet/.test(body),
-  body.match(/just now|\d+ min ago|\dh ago|market closed/)?.[0]);
-check("disclaimer present", /not an advisory product/.test(body));
-check("no advice language", !/\b(buy|sell|hold|target price|recommend)\b/i.test(body));
-
-console.log("\nsymbol detail");
-await page.getByRole("link", { name: "RELIANCE.NS" }).click();
-await page.waitForURL("**/symbol/RELIANCE.NS", { timeout: 20_000 });
-const detailAsk = page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Ask THESIS" });
-check("Ask THESIS is visible on Symbol Detail", await detailAsk.isVisible());
-await detailAsk.click();
-check("Ask THESIS opens from Symbol Detail", await page.getByRole("region", { name: "Ask THESIS", exact: true }).isVisible());
-await page.getByRole("button", { name: "Close Ask THESIS" }).click();
-const detail = await page.locator("main").innerText();
-check("watchlist symbol opens its detail", /RELIANCE\.NS/.test(detail));
-check("detail carries price context", /₹[\d,]+\.\d{2}/.test(detail) && /vs prev close/.test(detail));
-check("detail has a truthful no-thesis state", /No thesis recorded/.test(detail));
-await page.goBack();
-await page.waitForURL("**/watchlist", { timeout: 20_000 });
-
-console.log("\nsearch");
-await page.getByRole("button", { name: "Add Stock", exact: true }).click();
-await symbolInput.fill("");
-await symbolInput.type("infosys", { delay: 30 });
-const suggestion = page.getByRole("button", { name: /INFY\.NS/ });
-const gotSuggestions = await suggestion.first().waitFor({ state: "visible", timeout: 15_000 })
-  .then(() => true)
-  .catch(() => false);
-check("search suggests INFY.NS", gotSuggestions);
-if (gotSuggestions) {
-  await suggestion.first().click();
-  await page.getByLabel("Waiting for a dip").check();
-  await page.locator('input[name="low"]').fill("1000");
-  await page.locator('input[name="high"]').fill("1100");
-  await page.locator('input[name="note"]').fill("Browser check: my note stays exactly as written.");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
-  const removeInfy = page.getByRole("button", { name: "Remove INFY.NS" });
-  await removeInfy.waitFor({ state: "visible", timeout: 40_000 });
-  await page.getByRole("button", { name: "Ask THESIS" }).click();
-  await page.getByLabel("Ask THESIS a question").fill("What is my thesis for INFY?");
-  await page.getByRole("button", { name: "Send" }).click();
-  const infyThesis = page.getByText(/Your thesis for INFY\.NS is “Waiting for a dip”/);
-  const gotInfyThesis = await infyThesis.waitFor({ state: "visible", timeout: 15_000 }).then(() => true).catch(() => false);
-  check("Ask THESIS uses the current user’s INFY thesis", gotInfyThesis);
-  await page.getByLabel("Ask THESIS a question").fill("Why is this event significant?");
-  await page.getByRole("button", { name: "Send" }).click();
-  const eventAnswer = page.getByText(/no stored detected event|was marked for .* at /);
-  const gotEventAnswer = await eventAnswer.waitFor({ state: "visible", timeout: 15_000 }).then(() => true).catch(() => false);
-  check("Ask THESIS shows recorded evidence or states its absence", gotEventAnswer);
-  await page.getByLabel("Ask THESIS a question").fill("Explain NOTWATCHEDCHECK.NS event");
-  await page.getByRole("button", { name: "Send" }).click();
-  await page.getByText(/NOTWATCHEDCHECK.NS is not on your watchlist/).waitFor({ timeout: 15_000 });
-  check("Ask THESIS does not invent missing symbol context", true);
-  await page.getByRole("button", { name: "Close Ask THESIS" }).click();
+page.on("pageerror", (e) => errors.push(e.message));
+let checks = 0;
+function check(label: string, value: boolean) { if (!value) throw new Error(label); checks++; console.log(`PASS ${label}`); }
+async function visit(path: string) { await page.goto(base + path); await expect(page.locator(".terminal")).toBeVisible(); }
+async function account() { await page.getByRole("button", { name: "Account menu", exact: true }).click(); await expect(page.getByRole("region", { name: "Your account" })).toBeVisible(); }
+async function logout() { await account(); await page.getByRole("button", { name: "Sign out", exact: true }).click(); await page.waitForURL("**/login"); }
+async function ask(question: string) {
+  await page.getByLabel("Ask THESIS a question").fill(question);
+  const response = page.waitForResponse((r) => r.url().endsWith("/api/ask") && r.request().method() === "POST");
+  await page.getByLabel("Ask THESIS a question").press("Enter");
+  const result = await response;
+  check(`Ask request succeeds: ${question}`, result.ok());
+  const payload = await result.json();
+  await expect(page.getByRole("log").getByText(payload.answer, { exact: true }).last()).toBeVisible();
+  return payload;
 }
+try {
+  console.log(`Target: ${base}`);
+  await page.goto(base);
+  check("unauthenticated redirect", page.url().endsWith("/login"));
+  check("sign-in asks only for email and password", await page.locator('input[name="displayName"]').count() === 0);
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Tanisha Test");
+  await page.locator('input[name="email"]').fill(email);
+  await page.locator('input[name="password"]').fill(password);
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await page.waitForURL(base + "/", { timeout: 40000 });
+  await expect(page.getByRole("heading", { name: /Tanisha/ })).toBeVisible();
+  check("signup lands on personalized Home", true);
+  for (const name of ["NIFTY 50", "SENSEX", "NIFTY BANK", "S&P 500", "NASDAQ Composite", "Dow Jones"]) {
+    await expect(page.locator(".index-card").getByText(name, { exact: true })).toBeVisible();
+  }
+  check("Home shows three Indian and three US index cards", await page.locator(".index-card").count() === 6);
+  const regionHeadings = (await page.locator(".pulse-region-heading").allInnerTexts()).join("|").toUpperCase();
+  check("both markets are labelled as their own region", regionHeadings.includes("INDIA") && regionHeadings.includes("UNITED STATES"));
+  const pulse = await page.locator(".market-pulse").innerText();
+  check("no single global market state is claimed", /INDIA (OPEN|CLOSED|PRE-MARKET|AFTER HOURS)|Session state unavailable/.test(pulse) && !/^MARKET CLOSED$/m.test(pulse));
+  const cardHeights = await page.locator(".index-card").evaluateAll((cards) => cards.map((c) => Math.round(c.getBoundingClientRect().height)));
+  check("all six index cards share one height", new Set(cardHeights).size === 1);
+  check("every index card resolves a chart or says why it cannot", await page.locator(".index-card .price-chart, .index-card .index-no-history").count() === 6);
+  await expect(page.getByText("YOUR THESIS", { exact: true })).toBeVisible();
+  check("Your THESIS strip shows three deliberate metrics", await page.locator(".thesis-strip-metrics > div").count() === 3);
+  check("Home has no stock rows, full digest or permanent chatbot", await page.locator(".watchlist-table,.chat-panel,.symbol-events").count() === 0);
+  await expect(page.getByRole("heading", { name: "Market Briefing", exact: true })).toBeVisible();
+  const links = await page.locator(".news-item").evaluateAll((items) => items.map((a) => ({ href: (a as HTMLAnchorElement).href, source: a.querySelector("p")?.textContent })));
+  check("news has real HTTPS links and source/time or truthful unavailable state", links.length ? links.every((a) => a.href.startsWith("https://") && a.source?.includes("IST")) : await page.getByText("Market briefing is unavailable right now.").isVisible());
+  await account();
+  await expect(page.locator(".account-profile").getByText("Tanisha Test", { exact: true })).toBeVisible();
+  await expect(page.locator(".account-profile").getByText(email, { exact: true })).toBeVisible();
+  check("account menu shows only authenticated identity", true);
+  check("appearance offers exactly Light and Dark", await page.locator('input[name="appearance"]').count() === 2 && await page.getByRole("radio", { name: "System", exact: true }).count() === 0);
+  await page.getByRole("radio", { name: "Light", exact: true }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#account-dropdown")).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Account menu" })).toBeFocused();
+  check("theme switches and Escape closes with focus restored", true);
+  await account(); await page.getByRole("heading", { name: /Tanisha/ }).click();
+  check("click outside closes account menu", !await page.locator("#account-dropdown").isVisible());
+  await page.reload(); await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  check("theme and session persist after reload", page.url() === base + "/");
+  await account(); await page.getByRole("radio", { name: "Dark", exact: true }).check(); await page.keyboard.press("Escape");
+  check("sidebar contains only primary navigation, not Logout", !/Logout|Sign out/.test(await page.locator(".app-sidebar").innerText()));
+  await visit("/digest"); check("new empty-user Digest loads", !(await page.locator("body").innerText()).includes("Application error"));
+  await visit("/ask");
+  const empty = await ask("What changed while I was away?");
+  check("THESIS data question is grounded", empty.category === "THESIS DATA" && /no new detected changes|THESIS found/.test(empty.answer));
+  const general = await ask("What is a P/E ratio?");
+  check("general mode is separately labeled and has a truthful provider state", general.category === "GENERAL" && (general.degraded ? /aren’t connected|temporarily unavailable/.test(general.answer) : /earnings/i.test(general.answer)));
+  console.log(`GENERAL PROVIDER: ${general.degraded ? "UNAVAILABLE — not claiming open-ended Q&A verified" : "CONNECTED"}`);
+  const advice = await ask("Which stock should I invest in?");
+  check("advice boundary offers helpful comparison instead", /can’t choose an investment/.test(advice.answer) && /compare companies/.test(advice.answer));
+  await page.getByLabel("Ask THESIS a question").fill("First line"); await page.getByLabel("Ask THESIS a question").press("Shift+Enter");
+  check("Shift+Enter keeps multiline input", (await page.getByLabel("Ask THESIS a question").inputValue()).includes("\n"));
+  await visit("/watchlist"); await expect(page.getByText("Nothing on your watchlist yet.")).toBeVisible();
+  check("watchlist empty state", true);
+  await page.getByRole("button", { name: "Add Stock", exact: true }).click();
+  const symbolInput = page.locator('input[name="symbol"][autocomplete="off"]');
+  await symbolInput.fill("RELIANCE.NS"); await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Remove RELIANCE.NS" }).waitFor({ timeout: 40000 });
+  const body = await page.locator("body").innerText();
+  check("valid quote renders rupee price", /₹[\d,]+\.\d{2}/.test(body));
+  check("previous-close change visible", /vs prev close/.test(body));
+  check("exchange/freshness stated", await page.locator(".watchlist-table .freshness").count() > 0);
+  check("disclaimer and no advice language", /not an advisory product/.test(body) && !/\b(buy|sell|hold|target price|recommend)\b/i.test(body));
+  await page.getByRole("link", { name: "RELIANCE.NS", exact: true }).click();
+  await page.waitForURL("**/symbol/RELIANCE.NS");
+  check("symbol detail quote and no-thesis state", /₹[\d,]+\.\d{2}/.test(await page.locator(".symbol-price").innerText()) && await page.getByText("No thesis recorded").isVisible());
+  await expect(page.getByText("Add a structured condition to use Thesis Replay.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ask THESIS about this stock" })).toBeVisible();
+  await visit("/watchlist"); await page.getByRole("button", { name: "Add Stock", exact: true }).click();
+  await symbolInput.fill("infosys");
+  await page.getByRole("button", { name: /INFY\.NS/ }).first().click({ timeout: 15000 });
+  check("company search reaches the NSE listing", true);
+  await page.getByLabel("Waiting for a dip").check();
+  await page.locator('input[name="low"]').fill("1000"); await page.locator('input[name="high"]').fill("1100");
+  const note = "Browser check: my note stays exactly as written.";
+  await page.locator('input[name="note"]').fill(note);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Remove INFY.NS" }).waitFor({ timeout: 40000 });
+  await page.getByRole("link", { name: "INFY.NS", exact: true }).click(); await page.waitForURL("**/symbol/INFY.NS");
+  await expect(page.getByText(`“${note}”`)).toBeVisible();
+  check("exact free-text note preserved on analytical surface", true);
+  await expect(page.getByRole("heading", { name: "THESIS Replay", exact: true })).toBeVisible();
+  check("Replay renders observed result or explicit insufficient history", /Observed occurrences|Not enough observed history/.test(await page.locator("#thesis-replay").innerText()));
+  await page.getByRole("link", { name: "Ask THESIS about this stock" }).click(); await page.waitForURL("**/ask?symbol=INFY.NS");
+  const thesis = await ask("What is my thesis for INFY?");
+  check("own structured thesis and exact note ground the answer", thesis.answer.includes("₹1,000.00 to ₹1,100.00") && thesis.answer.includes(note));
+  const evidence = await ask("Explain the latest INFY evidence.");
+  check("stored evidence or honest absence", /no stored detected event|was marked for .* at /.test(evidence.answer));
+  check("unwatched symbol cannot widen context", (await ask("Explain NOTWATCHEDCHECK.NS event")).answer.includes("not on your watchlist"));
+  const priorMessages = await page.locator(".chat-message").count(); await page.reload();
+  await expect(page.locator(".chat-message")).toHaveCount(priorMessages);
+  check("conversation persists during the same user session", true);
+  /* ---- a US security through the actual product, not just search ---------- */
+  await visit("/watchlist");
+  const search = page.getByLabel("Search companies");
+  await search.fill("BlackRock");
+  const blk = page.locator(".search-results button", { hasText: "BLK" }).first();
+  await blk.waitFor({ timeout: 20000 });
+  check("global search returns BlackRock on NYSE, not an NSE-only message", /NYSE/.test(await blk.innerText()) && !/No NSE symbols found/.test(await page.locator(".search-results").innerText()));
+  await blk.click();
+  await page.getByLabel("Waiting for a dip").waitFor({ timeout: 20000 });
+  check("selecting a search result opens Add with that company", (await symbolInput.inputValue()) === "BLK");
+  await page.getByLabel("Waiting for a dip").check();
+  await page.locator('input[name="low"]').fill("1000"); await page.locator('input[name="high"]').fill("1200");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Remove BLK" }).waitFor({ timeout: 40000 });
+  const mixedTable = await page.locator(".watchlist-table").innerText();
+  check("one watchlist holds both currencies, each in its own units", /\$[\d,]+\.\d{2}/.test(mixedTable) && /₹[\d,]+\.\d{2}/.test(mixedTable));
+  check("each row states its own exchange and market", /NYSE · US/.test(mixedTable) && /NSE · India/.test(mixedTable));
+  await page.getByRole("link", { name: "BLK", exact: true }).click(); await page.waitForURL("**/symbol/BLK");
+  const usDetail = await page.locator(".symbol-heading").innerText();
+  check("US symbol detail states NYSE, US and USD", /NYSE/.test(usDetail) && /USD/.test(usDetail) && /\$[\d,]+\.\d{2}/.test(usDetail));
+  check("a US security is never priced or timestamped as Indian", !usDetail.includes("₹") && !usDetail.includes("IST"));
+  check("US thesis condition is stored and read back in dollars", /\$1,000\.00 – \$1,200\.00/.test(await page.locator(".thesis-card").innerText()));
+  check("US replay is either observed or truthfully insufficient", /Observed occurrences|Not enough observed history|Replay is unavailable/.test(await page.locator("#thesis-replay").innerText()));
+  const beta = await page.locator("body").innerText();
+  check("a US security is never measured against NIFTY", !/vs \^NSEI/.test(beta));
+  await page.getByRole("link", { name: "Ask THESIS about this stock" }).click(); await page.waitForURL("**/ask?symbol=BLK");
+  const usAsk = await ask("What is my thesis for BLK?");
+  check("Ask THESIS answers a US security in its own currency", usAsk.answer.includes("$1,000.00") && !usAsk.answer.includes("₹"));
 
-console.log("\nhome dashboard and persistence");
-await primaryNav.getByRole("link", { name: "Home", exact: true }).click();
-await page.waitForURL(base + "/");
-check("Home dashboard exposes watchlist and digest preview", await page.getByRole("heading", { name: "My Watchlist" }).isVisible() && await page.getByRole("heading", { name: "While You Were Away" }).isVisible());
-await page.getByRole("button", { name: "Sign out" }).click();
-await page.waitForURL("**/login");
-await page.locator('input[name="email"]').fill(email);
-await page.locator('input[name="password"]').fill("hunter2hunter2");
-await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
-await page.waitForURL("**/digest", { timeout: 30_000 });
-await primaryNav.getByRole("link", { name: "Watchlist", exact: true }).click();
-await page.waitForURL("**/watchlist");
-check("watchlist persists across logout/login", await page.getByRole("button", { name: "Remove RELIANCE.NS" }).isVisible() && await page.getByRole("button", { name: "Remove INFY.NS" }).isVisible());
-check("free-text thesis note is preserved", await page.getByText("“Browser check: my note stays exactly as written.”").isVisible());
-
-console.log("\nunresolvable symbol");
-await page.getByRole("button", { name: "Add Stock", exact: true }).click();
-await symbolInput.fill("NOTAREALTICKER.NS");
-await page.getByRole("button", { name: "Add", exact: true }).click();
-const unresolvedMessage = page.getByText("We could not resolve NOTAREALTICKER.NS on NSE.");
-const rejectedUnresolvable = await unresolvedMessage.waitFor({ state: "visible", timeout: 20_000 })
-  .then(() => true)
-  .catch(() => false);
-check("silently dropped symbol is explicitly rejected", rejectedUnresolvable);
-await page.getByRole("button", { name: "Close Add Stock" }).click();
-
-console.log("\nremove");
-await removeReliance.click();
-const removeInfy = page.getByRole("button", { name: "Remove INFY.NS" });
-if (await removeInfy.isVisible()) await removeInfy.click();
-await page.getByText("Nothing on your watchlist yet").waitFor({ timeout: 20_000 });
-check("removal returns to empty state", true);
-
-console.log("\nsign out");
-await page.getByRole("button", { name: "Sign out" }).click();
-await page.waitForURL("**/login", { timeout: 20_000 });
-check("sign out returns to /login", page.url().endsWith("/login"));
-await page.goto(`${base}/watchlist`);
-check("watchlist is gated after sign out", page.url().endsWith("/login"), page.url());
-const askAfterLogout = await page.request.post(`${base}/api/ask`, { data: { question: "What changed?" } });
-check("Ask THESIS API is gated after sign out", askAfterLogout.status() === 401, `${askAfterLogout.status()}`);
-
-check("no uncaught client errors", errors.length === 0, errors.slice(0, 2).join(" | "));
-
-await page.goto(base);
-await browser.close();
-console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${failed} failed`);
-process.exit(failed === 0 ? 0 : 1);
+  await visit("/digest"); await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Ask THESIS" })).toBeVisible();
+  await logout();
+  await page.goto(base + "/watchlist"); check("auth gating after logout", page.url().endsWith("/login"));
+  check("Ask endpoint is gated", (await page.request.post(base + "/api/ask", { data: { question: "What changed?" } })).status() === 401);
+  await page.locator('input[name="email"]').fill(email); await page.locator('input[name="password"]').fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click(); await page.waitForURL(base + "/", { timeout: 40000 });
+  await visit("/watchlist");
+  check("watchlist persists after login", await page.getByRole("button", { name: "Remove INFY.NS" }).isVisible() && await page.getByRole("button", { name: "Remove RELIANCE.NS" }).isVisible());
+  await page.getByRole("button", { name: "Add Stock", exact: true }).click(); await symbolInput.fill("NOTAREALTICKER.NS"); await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByText("We could not resolve NOTAREALTICKER.NS with our market data provider.")).toBeVisible({ timeout: 20000 });
+  check("silent provider omission explicitly rejected", true); await page.getByRole("button", { name: "Close Add Stock" }).click();
+  for (const symbol of ["RELIANCE.NS", "INFY.NS", "BLK"]) { await page.getByRole("button", { name: `Remove ${symbol}` }).click(); await expect(page.getByRole("button", { name: `Remove ${symbol}` })).toHaveCount(0); }
+  await expect(page.getByText("Nothing on your watchlist yet.")).toBeVisible(); check("remove restores empty state", true);
+  await logout(); check("sign out returns to login", page.url().endsWith("/login"));
+  check("no uncaught client errors", errors.length === 0);
+  console.log(`PASS — ${checks} browser checks`);
+} finally { await browser.close(); }

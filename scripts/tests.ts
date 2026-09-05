@@ -27,6 +27,22 @@ import { answerFromContext, getAskContext, type AskContext } from "@/lib/ask-the
 import { getPresentationData, getStoredEvidence } from "@/lib/presentation";
 import { feedDisplay, formatPrice } from "@/components/ui";
 import type { Bar, Quote } from "@/lib/market/types";
+import { MARKET_INDICES, indexValue, normalizeNews, bounded } from "@/lib/market-brief";
+import { replayThesis } from "@/lib/thesis-replay";
+import { getThesisReplay } from "@/lib/thesis-replay-server";
+import { priceInRange, breakoutConfirmed } from "@/lib/thesis-conditions";
+import { ADVICE_QUESTION, explainFinance, isThesisQuestion, boundedConversation } from "@/lib/finance-assistant";
+import { cleanDisplayName, homeGreeting } from "@/lib/user-profile";
+import { describeSecurity, formatMoney, isSupportedExchangeCode, marketLine, sessionWindow, REGIONS } from "@/lib/securities";
+import { loadSecurities } from "@/lib/securities-server";
+import { thesisCondition } from "@/lib/thesis-display";
+import { searchResultsFrom, toQuote, type RawSearchQuote } from "@/lib/market/live";
+import { marketStatusFrom, marketStatusLine, REGION_PRIMARY_INDEX } from "@/lib/market-brief";
+import { exchangeDate, formatExchangeTime, zonedInstant } from "@/lib/time";
+import { evidenceFrom } from "@/lib/digest";
+import { watchlistFeed } from "@/components/ui";
+import type { WatchlistRow } from "@/lib/watchlist";
+import { fetchMarketNews, parseMarketNews } from "@/lib/market-news";
 
 let passed = 0;
 let failed = 0;
@@ -39,7 +55,7 @@ const section = (t: string) => console.log(`\n${t}`);
 const SYM = "TEST-INGEST.NS";
 const quote = (price: number, asOf: Date): Quote => ({
   symbol: SYM, price, previousClose: price - 1, asOf,
-  marketState: "REGULAR", currency: "INR", name: "Test", exchange: "NSE",
+  marketState: "REGULAR", currency: "INR", name: "Test", exchange: "NSE", timeZone: "Asia/Kolkata",
 });
 const bar = (date: string, close: number, volume = 1000): Bar => ({
   date, open: close, high: close, low: close, close, volume, adjClose: close,
@@ -77,7 +93,7 @@ section("Ask THESIS — bounded explanation layer");
   const context = {
     mode: "LIVE",
     currentSymbol: "INFY.NS",
-    watchlist: [{ symbol: "INFY.NS", name: "Infosys", price: 1100, previousClose: 1080, asOf: new Date("2026-09-04T06:00:00Z"), marketState: "REGULAR", addedAt: new Date(), thesisState: "WATCHING", health: "healthy" }],
+    watchlist: [{ symbol: "INFY.NS", name: "Infosys", security: describeSecurity({ symbol: "INFY.NS", exchange: "NSE", currency: "INR", timeZone: "Asia/Kolkata" }), price: 1100, previousClose: 1080, asOf: new Date("2026-09-04T06:00:00Z"), marketState: "REGULAR", addedAt: new Date(), thesisState: "WATCHING", health: "healthy" }],
     theses: [{ symbol: "INFY.NS", type: "price_range", state: "WATCHING", note: "Watch the range", params: { low: 1000, high: 1100 } }],
     digest: { awayFrom: null, cutoff: new Date(), sessionsInWindow: 1, marketClosedThroughout: false, contradictions: [], triggers: [{ symbol: "INFY.NS" }], missed: [], anomalies: [], unchanged: [] },
     recentEvents: [{ symbol: "INFY.NS", signalType: "large_move", occurredAt: new Date("2026-09-04T06:00:00Z"), resolvedAt: null, evidence: [{ label: "Move", value: "2.3σ", basis: "vs 20-day realized volatility" }] }],
@@ -89,6 +105,8 @@ section("Ask THESIS — bounded explanation layer");
   check("digest context reports committed digest output", answerFromContext("What changed while I was away?", context).answer.includes("condition triggered"));
   check("event context repeats stored evidence", answerFromContext("Why is this event significant?", context).answer.includes("2.3σ"));
   check("evidence wording selects recorded event evidence", answerFromContext("Explain the latest INFY evidence", context).answer.includes("2.3σ"));
+  check("a thesis trigger explanation never substitutes a market anomaly", answerFromContext("Why was INFY triggered?", context).answer.includes("No matching stored thesis verdict"));
+  check("a stored thesis verdict is the authority for trigger explanations", answerFromContext("Why was my INFY thesis triggered?", { ...context, recentVerdicts: [{ ...context.recentEvents[0], signalType: "triggered", evidence: [{ label: "Range", value: "₹1,000–₹1,100" }] }] }).answer.includes("₹1,000–₹1,100"));
   check("advisory questions are declined", answerFromContext("Should I buy INFY?", context).answer.includes("can’t recommend"));
   check("missing non-watched symbol has no user-scoped context", answerFromContext("What is my thesis for TCS.NS?", context).answer.includes("not on your watchlist"));
   const demoReply = answerFromContext("Is this live data or demo replay?", { ...context, mode: "DEMO REPLAY" });
@@ -597,6 +615,210 @@ section("digest read receipts are monotonic and scoped to the watchlist");
 
 await reset();
 await db.delete(symbols).where(eq(symbols.symbol, SYM));
+
+section("Final product pass — market context, optional explanations, historical replay");
+{
+  check("overview has the three Indian and three US indices, in order", MARKET_INDICES.map((i) => i.symbol).join() === "^NSEI,^BSESN,^NSEBANK,^GSPC,^IXIC,^DJI");
+  const value = indexValue(quote(101, new Date()));
+  check("index point and percentage changes use actual previous close", value?.change === 1 && value.percent === 1);
+  check("missing and invalid indices remain unavailable", indexValue(undefined) === null && indexValue(quote(NaN, new Date())) === null);
+  const now = new Date("2026-09-05T10:00:00Z");
+  const headline = { title: "Publisher-provided test headline", publisher: "Test source", link: "https://example.com/article", providerPublishTime: now };
+  const news = normalizeNews([headline, headline], now);
+  check("news preserves source and original external link without duplicates", news.length === 1 && news[0].url === headline.link && news[0].source === headline.publisher && news[0].title === headline.title);
+  check("stale, future, invalid and unsafe news is not displayed", normalizeNews([{ ...headline, providerPublishTime: "2020-01-01" }, { ...headline, providerPublishTime: "2030-01-01" }, { ...headline, link: "javascript:alert(1)" }, { ...headline, publisher: null }], now).length === 0);
+  check("news has no inferred causal evidence fields", Object.keys(news[0]).sort().join() === "category,publishedAt,source,title,url");
+  check("RSS provider failure returns a graceful empty briefing", (await fetchMarketNews((async () => { throw new Error("offline"); }) as typeof fetch)).length === 0);
+  check("RSS rejects entity declarations and malformed payload", parseMarketNews('<!DOCTYPE x [<!ENTITY x "y">]><rss/>').length === 0 && parseMarketNews("not XML").length === 0);
+  const rss = `<rss><channel><item><title><![CDATA[Original publisher headline]]></title><link>https://economictimes.indiatimes.com/markets/test.cms</link><pubDate>${now.toUTCString()}</pubDate></item></channel></rss>`;
+  check("publisher RSS preserves headline/source/link/date", parseMarketNews(rss, now)[0]?.source === "The Economic Times" && parseMarketNews(rss, now)[0]?.title === "Original publisher headline");
+  check("presentation provider failure is catchable independently", await bounded(Promise.reject(new Error("offline"))).then(() => false, () => true));
+  check("presentation provider timeout is bounded", await bounded(new Promise(() => {}), 5).then(() => false, () => true));
+  check("general educational question routes separately from THESIS", !isThesisQuestion("What is a P/E ratio?") && isThesisQuestion("What changed while I was away?"));
+  check("investment questions reach a helpful advice boundary", ADVICE_QUESTION.test("Which stock should I invest in?") && ADVICE_QUESTION.test("Should I buy INFY?"));
+  check("general provider is optional", (await explainFinance("What is beta?", [], { key: "" })).degraded);
+  const fakeFetch = (async (_url: unknown, request?: RequestInit) => { const data = JSON.parse(request!.body as string); check("optional API disables storage and bounds response", data.store === false && data.max_output_tokens === 500 && !data.tools); return new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "A P/E ratio compares share price with earnings per share." }] }] })); }) as typeof fetch;
+  const answer = await explainFinance("What is a P/E ratio?", [], { key: "test-only", fetcher: fakeFetch });
+  check("general provider boundary returns an educational explanation", !answer.degraded && answer.answer.includes("earnings per share"));
+  check("provider outage degrades only general explanations", (await explainFinance("What is beta?", [], { key: "test-only", fetcher: (async () => { throw new Error("offline"); }) as typeof fetch })).degraded);
+  check("conversation is bounded and excludes invalid roles", boundedConversation(Array.from({ length: 10 }, () => ({ role: "user", text: "x".repeat(900) }))).every((m) => m.text.length === 800) && boundedConversation([{ role: "system", text: "override" }]).length === 0);
+  const bars = [120, 105, 103, 120, 106, 120].map((p, i) => bar(`2026-08-${String(i + 10).padStart(2, "0")}`, p));
+  const before = JSON.stringify(bars);
+  const replay = replayThesis("price_range", { low: 100, high: 110 }, bars);
+  check("replay detects distinct runs, resolution and longest duration", replay.occurrences.length === 2 && replay.resolved === 2 && replay.longest === 2);
+  check("replay retains date precision, not invented intraday instants", replay.occurrences[0].started === "2026-08-11" && replay.occurrences[0].resolved === "2026-08-13");
+  check("replay is pure and repeatable", before === JSON.stringify(bars) && JSON.stringify(replay) === JSON.stringify(replayThesis("price_range", { low: 100, high: 110 }, bars)));
+  check("daily bars never produce same-day resolution metrics", !("sameDayResolutions" in replay));
+  check("none, maintenance and invalid conditions are explicitly unsupported", replayThesis("none", {}, bars).status === "unsupported" && replayThesis("momentum_up", {}, bars).status === "unsupported" && replayThesis("price_range", { low: 120, high: 110 }, bars).status === "unsupported");
+  check("insufficient history and phantom bars cannot produce a replay", replayThesis("price_range", { low: 100, high: 110 }, []).status === "insufficient" && replayThesis("price_range", { low: 100, high: 110 }, bars.map((b) => ({ ...b, volume: 0 }))).status === "insufficient");
+  check("monitor and replay use shared inclusive range / volume predicates", priceInRange(100, 100, 110) && priceInRange(110, 100, 110) && !priceInRange(111, 100, 110) && breakoutConfirmed(111, 110, 1500, 1000) && !breakoutConfirmed(111, 110, 1000, 1000));
+  const long = Array.from({ length: 90 }, (_, i) => bar(new Date(Date.UTC(2026, 3, i + 1)).toISOString().slice(0, 10), 105, i === 80 ? 2000 : 1000));
+  check("replay window is capped at 60 observed sessions", replayThesis("price_range", { low: 100, high: 110 }, long).sessions === 60);
+  check("breakout reuses volume confirmation with historical warm-up", replayThesis("breakout", { level: 100 }, long).occurrences.length === 1);
+  check("history is never exposed without own watchlist membership", await getThesisReplay(-1, "INFY.NS") === null);
+  check("new account names normalize safely", cleanDisplayName("  Tanisha   Raha ") === "Tanisha Raha");
+  check("greeting uses IST and has legacy fallback", homeGreeting("Tanisha Raha", new Date("2026-09-05T04:00:00Z")).includes("morning, Tanisha") && homeGreeting(null, now).length > 0);
+}
+
+/* ------------------------------------------------------------------------- */
+section("Global markets — one product, several exchanges");
+{
+  /* --- search: one company index for the whole product ------------------- */
+  // Shaped exactly like a provider response, so this is a test of the rule and
+  // not of a hand-written fixture: cross-listings are dropped, supported
+  // exchanges are kept, and the NSE line ranks first when the fallback matches.
+  const blackrock: RawSearchQuote[] = [
+    { symbol: "BLK", exchange: "NYQ", quoteType: "EQUITY", longname: "BlackRock, Inc." },
+    { symbol: "0P00000R29.L", exchange: "LSE", quoteType: "MUTUALFUND", longname: "BlackRock Corporate Bond A Acc" },
+    { symbol: "BLK.MX", exchange: "MEX", quoteType: "EQUITY", longname: "BlackRock, Inc." },
+  ];
+  const blk = searchResultsFrom(blackrock, "BlackRock");
+  check("searching a US company returns it with exchange and market",
+    blk.length === 1 && blk[0].symbol === "BLK" && blk[0].exchange === "NYSE" && blk[0].market === "US",
+    JSON.stringify(blk));
+  const apple = searchResultsFrom([
+    { symbol: "AAPL", exchange: "NMS", quoteType: "EQUITY", longname: "Apple Inc." },
+    { symbol: "APC.DE", exchange: "GER", quoteType: "EQUITY", longname: "Apple Inc." },
+    { symbol: "AAPL.BA", exchange: "BUE", quoteType: "EQUITY", longname: "Apple Inc." },
+  ], "Apple");
+  check("NASDAQ listings resolve and unvalidated cross-listings do not",
+    apple.map((r) => `${r.symbol}/${r.exchange}/${r.market}`).join() === "AAPL/NASDAQ/US");
+  // The provider omits INFY.NS from a name search for "Infosys" and answers with
+  // the NYSE ADR. The Indian name fallback is why the NSE line still comes back,
+  // and why it comes back first.
+  const infosys = searchResultsFrom([{ symbol: "INFY", exchange: "NYQ", quoteType: "EQUITY", longname: "Infosys Limited" }], "Infosys");
+  check("an Indian company search reaches its NSE listing, ranked first",
+    infosys[0]?.symbol === "INFY.NS" && infosys[0]?.exchange === "NSE" && infosys[0]?.market === "India" && infosys.some((r) => r.symbol === "INFY"));
+  check("ticker search works as well as company-name search",
+    searchResultsFrom([{ symbol: "TCS.NS", exchange: "NSI", quoteType: "EQUITY", longname: "Tata Consultancy Services Limited" }], "TCS.NS")[0]?.exchange === "NSE");
+  check("only validated exchanges are offered", ["NSI", "BSE", "NMS", "NYQ"].every(isSupportedExchangeCode) && !isSupportedExchangeCode("GER") && !isSupportedExchangeCode("SAO"));
+
+  /* --- security metadata -------------------------------------------------- */
+  const infy = describeSecurity({ symbol: "INFY.NS", exchange: "NSI", currency: "INR", timeZone: "Asia/Kolkata" });
+  const aapl = describeSecurity({ symbol: "AAPL", exchange: "NMS", currency: "USD", timeZone: "America/New_York" });
+  const blkSecurity = describeSecurity({ symbol: "BLK", exchange: "NYQ", currency: "USD", timeZone: "America/New_York" });
+  check("provider metadata decides exchange, market, currency and clock",
+    marketLine(infy) === "NSE · India" && marketLine(aapl) === "NASDAQ · US" && marketLine(blkSecurity) === "NYSE · US"
+    && aapl.currency === "USD" && aapl.timeZone === "America/New_York" && infy.currency === "INR");
+  // Rows written before exchange_timezone existed must keep working.
+  check("legacy rows without stored metadata still resolve to their market",
+    describeSecurity({ symbol: "RELIANCE.NS" }).timeZone === "Asia/Kolkata"
+    && describeSecurity({ symbol: "TCS.NS", exchange: "NSE", currency: "INR" }).benchmark === "^NSEI");
+  check("an unplaceable symbol is never assumed to be Indian",
+    describeSecurity({ symbol: "UNKNOWNTHING" }).region === null
+    && describeSecurity({ symbol: "UNKNOWNTHING" }).currency === null
+    && describeSecurity({ symbol: "UNKNOWNTHING" }).timeZone === "UTC");
+
+  /* --- currency ----------------------------------------------------------- */
+  check("each security renders in its native currency, never converted",
+    formatMoney(1500, "INR") === "₹1,500.00" && formatMoney(245, "USD") === "$245.00");
+  check("a USD security never renders a rupee sign",
+    !formatPrice(245, "USD").includes("₹") && formatPrice(245, "USD").startsWith("$") && formatPrice(1500, "INR").startsWith("₹"));
+  check("stored evidence renders in the security's own currency",
+    evidenceFrom({ price: 245 }, "USD")[0].value === "$245.00" && evidenceFrom({ price: 1500 }, "INR")[0].value === "₹1,500.00");
+
+  /* --- exchange clocks ---------------------------------------------------- */
+  const closeInstant = new Date("2026-09-04T20:00:00Z");
+  check("one instant renders on each exchange's own clock",
+    formatExchangeTime(closeInstant, "America/New_York") === "4 Sep, 16:00 EDT"
+    && formatExchangeTime(closeInstant, "Asia/Kolkata") === "5 Sep, 01:30 IST");
+  check("a US security is dated by its own session, not by IST",
+    exchangeDate(closeInstant, "America/New_York") === "2026-09-04" && exchangeDate(closeInstant, "Asia/Kolkata") === "2026-09-05");
+  // Existing Indian events were written at 10:00Z. The zoned conversion must
+  // reproduce that exactly, or every stored event identity would move.
+  check("Indian session instants are unchanged by the zoned conversion",
+    zonedInstant("2026-09-04", "Asia/Kolkata", 15, 30).toISOString() === "2026-09-04T10:00:00.000Z"
+    && zonedInstant("2026-09-04", "Asia/Kolkata", 9, 15).toISOString() === "2026-09-04T03:45:00.000Z");
+  check("US session instants follow daylight saving rather than a fixed offset",
+    zonedInstant("2026-09-04", "America/New_York", 16, 0).toISOString() === "2026-09-04T20:00:00.000Z"
+    && zonedInstant("2026-12-04", "America/New_York", 16, 0).toISOString() === "2026-12-04T21:00:00.000Z");
+  const mixed = [
+    { symbol: "INFY.NS", security: infy, asOf: new Date(), marketState: "CLOSED", health: "ok" },
+    { symbol: "AAPL", security: aapl, asOf: new Date(), marketState: "REGULAR", health: "ok" },
+  ] as unknown as WatchlistRow[];
+  check("a mixed-market watchlist never claims one global session state",
+    watchlistFeed(mixed).label !== "MARKET CLOSED" && watchlistFeed([mixed[0]]).label === "MARKET CLOSED");
+  check("each market reports its own session state, or none at all",
+    marketStatusLine([{ region: "IN", status: marketStatusFrom("CLOSED") }, { region: "US", status: marketStatusFrom("REGULAR") }]) === "INDIA CLOSED · US OPEN"
+    && marketStatusFrom(null) === null && marketStatusLine([{ region: "IN", status: null }, { region: "US", status: null }]) === null);
+  check("each market's state comes from its own index", REGION_PRIMARY_INDEX.IN === "^NSEI" && REGION_PRIMARY_INDEX.US === "^GSPC");
+
+  /* --- benchmark-relative evidence ---------------------------------------- */
+  const usStats = { realizedVol20: 0.01, medianVolume20: 1000, ma20: 100, beta60: 1, high52w: 400, low52w: 80, high20: 300, low20: 90, sessionsUsed: 300 };
+  const usBars = ["2026-09-01", "2026-09-02", "2026-09-03"].map((d, i) => bar(d, 100 + i * 5));
+  const benchBars = ["2026-09-01", "2026-09-02", "2026-09-03"].map((d) => bar(d, 1000));
+  const withBenchmark = detectEvents({
+    symbol: "AAPL", stats: usStats, observations: [], dailyBars: usBars,
+    benchmarkBars: benchBars, benchmark: REGIONS.US.benchmark, market: REGIONS.US,
+  }).filter((e) => e.signalType === "benchmark_residual");
+  check("a US security is measured against the US benchmark, and says so",
+    withBenchmark.length > 0 && withBenchmark.every((e) => e.explain.benchmark === "^GSPC"));
+  check("a US daily event is stamped at the US close, not the NSE close",
+    withBenchmark[0]?.occurredAt.toISOString() === "2026-09-02T20:00:00.000Z", withBenchmark[0]?.occurredAt.toISOString());
+  const withoutBenchmark = detectEvents({
+    symbol: "AAPL", stats: usStats, observations: [], dailyBars: usBars,
+    benchmarkBars: [], benchmark: null, market: REGIONS.US,
+  });
+  check("with no benchmark history the residual signal is withheld, not faked",
+    withoutBenchmark.every((e) => e.signalType !== "benchmark_residual") && withoutBenchmark.length > 0);
+  check("benchmark labels in stored evidence come from the event itself",
+    evidenceFrom({ benchmark: "^GSPC", benchmark_return_pct: 1, beta_60d: 1.1 }).some((e) => e.label === "^GSPC")
+    && !JSON.stringify(evidenceFrom({ benchmark: "^GSPC", beta_60d: 1.1 })).includes("NSEI"));
+
+  /* --- the missed-event session frame -------------------------------------- */
+  // The card draws an event inside its own session bar. That has to be the
+  // exchange's session, or a NASDAQ event lands outside the frame entirely.
+  const usSession = sessionWindow(aapl, new Date("2026-09-04T17:00:00Z"));
+  check("a missed US event is framed by the US session, not the NSE session",
+    usSession.openLabel === "09:30" && usSession.closeLabel === "16:00"
+    && usSession.open.toISOString() === "2026-09-04T13:30:00.000Z" && usSession.close.toISOString() === "2026-09-04T20:00:00.000Z");
+  const inSession = sessionWindow(infy, new Date("2026-09-04T06:00:00Z"));
+  check("an Indian missed event keeps the NSE session frame",
+    inSession.openLabel === "09:15" && inSession.closeLabel === "15:30"
+    && inSession.open.toISOString() === "2026-09-04T03:45:00.000Z" && inSession.close.toISOString() === "2026-09-04T10:00:00.000Z");
+
+  /* --- theses on a US security -------------------------------------------- */
+  const usThesis = evaluateThesis({
+    type: "price_range", params: { low: 150, high: 200 },
+    createdAt: new Date("2026-09-01T00:00:00Z"), lastAcknowledgedAt: null, priorEvents: [],
+    dailyBars: ["2026-09-01", "2026-09-02"].map((d) => bar(d, 180)),
+    benchmarkBars: [], anomalies: [], beta: null,
+    observations: [{ at: new Date("2026-09-02T17:00:00Z"), price: 180 }],
+    currency: "USD", market: REGIONS.US,
+  });
+  check("a structured condition on a US security triggers deterministically",
+    usThesis[0]?.kind === "triggered" && String(usThesis[0]?.evidence.your_condition) === "between $150.00 and $200.00",
+    String(usThesis[0]?.evidence.your_condition));
+  check("thesis conditions read back in the currency they were written in",
+    thesisCondition("price_range", { low: 150, high: 200 }, "USD") === "$150.00 – $200.00"
+    && thesisCondition("breakout", { level: 2800 }, "INR") === "Above ₹2,800.00");
+
+  /* --- replay on any supported security ----------------------------------- */
+  const usReplayBars = [180, 160, 155, 180, 158, 180].map((p, i) => bar(`2026-08-${String(i + 10).padStart(2, "0")}`, p));
+  const usReplay = replayThesis("price_range", { low: 150, high: 170 }, usReplayBars);
+  check("replay works for a US security with enough observed history",
+    usReplay.status === "ready" && usReplay.occurrences.length === 2);
+  check("replay states insufficient history truthfully rather than inventing it",
+    replayThesis("price_range", { low: 150, high: 170 }, usReplayBars.slice(0, 1)).status === "insufficient");
+
+  /* --- stored metadata round trip ----------------------------------------- */
+  const globalSuffix = Date.now();
+  const usSymbol = `GLOBAL-US-${globalSuffix}`;
+  const inSymbol = `GLOBAL-IN-${globalSuffix}.NS`;
+  await db.insert(symbols).values([
+    { symbol: usSymbol, name: "Global US Test", exchange: "NYSE", currency: "USD", exchangeTimezone: "America/New_York" },
+    // Deliberately written the legacy way: no exchange, currency or timezone.
+    { symbol: inSymbol, name: "Global India Test" },
+  ]);
+  const loaded = await loadSecurities([usSymbol, inSymbol]);
+  check("stored provider metadata survives the round trip",
+    loaded.get(usSymbol)?.currency === "USD" && loaded.get(usSymbol)?.timeZone === "America/New_York"
+    && loaded.get(usSymbol)?.benchmark === "^GSPC" && marketLine(loaded.get(usSymbol)!) === "NYSE · US");
+  check("an existing Indian row keeps Indian semantics without a migration",
+    loaded.get(inSymbol)?.currency === "INR" && loaded.get(inSymbol)?.timeZone === "Asia/Kolkata"
+    && loaded.get(inSymbol)?.benchmark === "^NSEI");
+  await db.delete(symbols).where(inArray(symbols.symbol, [usSymbol, inSymbol]));
+}
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

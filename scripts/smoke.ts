@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { quotes, symbols, users, watchlistItems } from "@/db/schema";
 import { authenticate, registerUser } from "@/lib/auth";
 import { addSymbol, getWatchlist, removeSymbol } from "@/lib/watchlist";
+import { formatMoney as formatPrice } from "@/lib/securities";
 import { classify, recordPollOutcome, TERMINAL_MISS_THRESHOLD } from "@/lib/feed-health";
 import { deriveTradingCalendar, alignSeries, isTradedEquityBar } from "@/lib/market/calendar";
 import { liveProvider } from "@/lib/market/live";
@@ -24,11 +25,11 @@ const section = (t: string) => console.log(`\n${t}`);
 const email = `smoke+${Date.now()}@example.com`;
 
 section("auth");
-const reg = await registerUser(email, "correct-horse-battery");
+const reg = await registerUser(email, "correct-horse-battery", "Smoke Test");
 check("register succeeds", reg.ok);
-const dup = await registerUser(email, "correct-horse-battery");
+const dup = await registerUser(email, "correct-horse-battery", "Smoke Test");
 check("duplicate email rejected", !dup.ok && dup.error.includes("already exists"), dup.ok ? "" : dup.error);
-const weak = await registerUser(`x${Date.now()}@example.com`, "short");
+const weak = await registerUser(`x${Date.now()}@example.com`, "short", "Smoke Test");
 check("short password rejected", !weak.ok);
 const good = await authenticate(email, "correct-horse-battery");
 check("correct password authenticates", good.ok);
@@ -54,7 +55,7 @@ await addSymbol(userId, "TCS.NS");
 const list = await getWatchlist(userId);
 check("watchlist returns both symbols", list.length === 2, list.map((r) => r.symbol).join(", "));
 const rel = list.find((r) => r.symbol === "RELIANCE.NS")!;
-check("price populated", rel.price != null && rel.price > 0, `₹${rel.price}`);
+check("price populated", rel.price != null && rel.price > 0, `${rel.price}`);
 check("asOf is a real exchange timestamp", rel.asOf != null && rel.asOf.getFullYear() > 2000, rel.asOf?.toISOString());
 check("asOf is not our fetch time", rel.asOf != null && Math.abs(Date.now() - rel.asOf.getTime()) < 7 * 864e5);
 check("marketState present", rel.marketState != null, String(rel.marketState));
@@ -65,8 +66,49 @@ check("watchlist renders from stored quotes, not a per-request fetch", rel.asOf 
 const storedQuote = await db.select().from(quotes).where(eq(quotes.symbol, "RELIANCE.NS"));
 check("quote persisted for last-known-good", storedQuote.length === 1);
 
+check("Indian security carries Indian metadata from the provider",
+  rel.security.exchange === "NSE" && rel.security.currency === "INR" && rel.security.timeZone === "Asia/Kolkata" && rel.security.benchmark === "^NSEI",
+  `${rel.security.exchange} ${rel.security.currency} ${rel.security.timeZone}`);
+
 await removeSymbol(userId, "TCS.NS");
 check("remove works", (await getWatchlist(userId)).length === 1);
+
+section("global securities — the whole flow, not just search");
+for (const symbol of ["AAPL", "BLK"] as const) {
+  const added = await addSymbol(userId, symbol.toLowerCase());
+  check(`${symbol} resolves and enters the watchlist`, added.ok, added.ok ? "" : added.error);
+}
+const global = await getWatchlist(userId);
+for (const [symbol, exchange] of [["AAPL", "NASDAQ"], ["BLK", "NYSE"]] as const) {
+  const row = global.find((r) => r.symbol === symbol);
+  check(`${symbol} stores exchange, currency and clock from the provider`,
+    row?.security.exchange === exchange && row?.security.currency === "USD"
+    && row?.security.timeZone === "America/New_York" && row?.security.marketLabel === "US",
+    `${row?.security.exchange} ${row?.security.currency} ${row?.security.timeZone}`);
+  check(`${symbol} has a US price and a US benchmark`,
+    row?.price != null && row.price > 0 && row?.security.benchmark === "^GSPC", `${row?.price}`);
+  check(`${symbol} renders in dollars, never rupees`,
+    formatPrice(row?.price ?? null, row?.security.currency ?? null).startsWith("$"),
+    formatPrice(row?.price ?? null, row?.security.currency ?? null));
+}
+check("a mixed watchlist keeps each market's own currency",
+  new Set(global.map((r) => r.security.currency)).size === 2 && new Set(global.map((r) => r.security.timeZone)).size === 2,
+  global.map((r) => `${r.symbol}:${r.security.currency}`).join(" "));
+
+section("global company search");
+for (const [query, expected, exchange] of [["BlackRock", "BLK", "NYSE"], ["Apple", "AAPL", "NASDAQ"], ["Infosys", "INFY.NS", "NSE"], ["Reliance", "RELIANCE.NS", "NSE"]] as const) {
+  const results = await liveProvider.search(query);
+  const hit = results.find((r) => r.symbol === expected);
+  check(`searching “${query}” returns ${expected} on ${exchange}`, hit?.exchange === exchange,
+    results.slice(0, 4).map((r) => `${r.symbol}/${r.exchange}`).join(" "));
+}
+check("search never claims to be NSE-only", (await liveProvider.search("BlackRock")).length > 0);
+
+section("US market indices resolve");
+const usIndices = await liveProvider.getQuotes(["^GSPC", "^IXIC", "^DJI"]);
+check("all three US indices return a quote", usIndices.quotes.length === 3 && usIndices.missing.length === 0,
+  usIndices.quotes.map((q) => `${q.symbol}=${q.price}`).join(" "));
+check("US indices carry a US clock", usIndices.quotes.every((q) => q.timeZone === "America/New_York"));
 
 section("feed health — transient vs terminal");
 await recordPollOutcome(db, [], ["RELIANCE.NS"]);
