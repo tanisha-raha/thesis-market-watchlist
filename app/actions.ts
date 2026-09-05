@@ -84,12 +84,16 @@ export async function addToWatchlist(_prev: FormState, formData: FormData): Prom
     await createThesis({ watchlistItemId: result.watchlistItemId, type: resolvedType, params, note });
     if (missingParams) {
       revalidatePath("/watchlist");
+      revalidatePath("/symbol/[symbol]", "page");
       return { error: "Saved without a monitored condition — that thesis type needs a price level." };
     }
   }
 
   revalidatePath("/watchlist");
   revalidatePath("/digest");
+  // A company can now be added from its own detail page, which then has to stop
+  // showing the "not watched" state it rendered a moment ago.
+  revalidatePath("/symbol/[symbol]", "page");
   return {};
 }
 
@@ -99,6 +103,7 @@ export async function removeFromWatchlist(formData: FormData): Promise<void> {
 
   await removeSymbol(user.id, String(formData.get("symbol") ?? ""));
   revalidatePath("/watchlist");
+  revalidatePath("/symbol/[symbol]", "page");
 }
 
 /**

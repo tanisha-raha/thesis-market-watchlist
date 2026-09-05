@@ -94,7 +94,7 @@ DEFINE → TEST → MONITOR → DETECT → EXPLAIN → REMEMBER
 | Home `/` | Market Brief: personalised greeting, NIFTY 50 / SENSEX / NIFTY BANK and S&P 500 / NASDAQ / Dow, each market's own session state and clock, a compact personal status strip, and current publisher headlines. No stock rows. |
 | Watchlist `/watchlist` | Company management, last-known quotes, freshness, structured condition and status. Responsive cards below desktop table widths. |
 | Digest `/digest` | What happened while away: stored triggers, contradictions, missed/reversed events, evidence and normal read receipts. |
-| Symbol Detail `/symbol/[symbol]` | Price/history, original note, structured thesis, reference statistics, evidence, timeline and THESIS Replay. |
+| Company Detail `/symbol/[symbol]` | Any supported company, watched or not: identity, price, exchange freshness, ranged price history and market data. Watched companies additionally show the original note, structured thesis, evidence, timeline and THESIS Replay. |
 | Ask THESIS `/ask` | Session conversation, separate THESIS DATA / GENERAL labels, contextual stock entry and helpful advice boundary. Never permanently embedded elsewhere. |
 
 The top-right account menu shows only the authenticated identity and offers exactly
@@ -102,6 +102,32 @@ two appearances — Light and Dark — plus sign-out. The preference persists pe
 browser, and a preference stored before the third option was removed resolves to
 Dark. New accounts store a validated display name; legacy names remain nullable and
 fall back to a generic greeting.
+
+### Search is discovery, not an add shortcut
+
+The global search bar answers "what is this company doing", not "add this to my
+list". Selecting a result opens that company's page — watched or not — so a user
+can look before deciding whether the reason to watch it is worth writing down.
+Adding starts from that page (or from the watchlist's own Add Stock button) and
+runs through the one existing flow: symbol, optional structured condition,
+optional note.
+
+A company nobody watches still shows real market information: identity, exchange,
+native currency, live price and freshness, a ranged price chart, the session's
+open/high/low/volume where the source provides them, and any detected market
+events. What it does not show is a thesis, a status, personal evidence or a
+replay — those are facts about a user, and inventing them for a company they do
+not watch is exactly the fabrication this product exists to avoid. It says so
+instead, and offers the add.
+
+Chart ranges are offered only where observations exist: 1D and 1W come from the
+observed intraday path, 1M/3M/1Y from stored or provider daily bars. A security
+we hold only daily bars for gets no 1D button rather than a line drawn between
+two closes. For a company nobody watches yet, one cached, bounded, read-only
+provider request supplies the quote and history — nothing is persisted, so this
+is an interactive lookup rather than the cold backfill the deployed app is
+forbidden from doing, and a provider failure degrades to "Price history
+temporarily unavailable" with the rest of the page intact.
 
 ### Two markets, one product
 
@@ -360,6 +386,10 @@ reproduces with `npm run detect`.
   BSE, NASDAQ and NYSE. Any symbol the provider can quote can still be added by
   ticker and will render in its own currency and exchange time, but it has no
   regional benchmark and no seeded history.
+- **A company outside the seeded universe has a lookup, not a monitor.** Its
+  detail page shows a live quote and a provider-fetched chart, but nothing is
+  stored, so it has no computed statistics, no detected events and no digest
+  participation until it is watched and seeded.
 - **A watched security outside the seeded universe has quotes but no history.** The
   deployed app never cold-backfills, so statistics, detection, digest events and
   Replay only exist for symbols whose daily bars were seeded from a local checkout

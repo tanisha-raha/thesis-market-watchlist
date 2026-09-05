@@ -55,7 +55,7 @@ try {
     await page.setViewportSize(size);
     for (const mode of ["dark", "light"]) {
       await theme(mode);
-      for (const [name, path] of [["home", "/"], ["watchlist", "/watchlist"], ["digest", "/digest"], ["symbol", "/symbol/INFY.NS"], ["symbol-us", "/symbol/BLK"], ["ask", "/ask?symbol=INFY.NS"]]) {
+      for (const [name, path] of [["home", "/"], ["watchlist", "/watchlist"], ["digest", "/digest"], ["symbol", "/symbol/INFY.NS"], ["symbol-us", "/symbol/BLK"], ["company", "/symbol/MSFT"], ["ask", "/ask?symbol=INFY.NS"]]) {
         await page.goto(base + path); await expect(page.locator(".terminal")).toBeVisible();
         await expect(page.locator("html")).toHaveAttribute("data-theme", mode);
         if (name !== "ask") await expect(page.locator(".chat-panel")).toHaveCount(0);
@@ -66,10 +66,18 @@ try {
           // Six cards, one height: the alignment is asserted, not eyeballed.
           if (new Set(heights).size !== 1) throw new Error(`Index cards misaligned: ${heights.join(",")}`);
         }
-        if (name.startsWith("symbol")) await expect(page.locator("#thesis-replay")).toBeVisible();
+        if (name === "symbol" || name === "symbol-us") await expect(page.locator("#thesis-replay")).toBeVisible();
         if (name === "symbol-us") {
           const heading = await page.locator(".symbol-heading").innerText();
           if (heading.includes("₹") || heading.includes("IST")) throw new Error("US security rendered with Indian units");
+        }
+        // A company nobody here watches: market data yes, personal claims no.
+        if (name === "company") {
+          const body = await page.locator("body").innerText();
+          if (!/Add to Watchlist/.test(body)) throw new Error("Unwatched company is missing its add call to action");
+          if (!/Add this company to your watchlist/.test(body)) throw new Error("Unwatched company is missing its truthful thesis state");
+          if (/TRIGGERED|CONTRADICTED|Keep watching/.test(body)) throw new Error("Unwatched company fabricated a thesis state");
+          if (await page.locator("#thesis-replay").count() !== 0) throw new Error("Replay shown for a company with no thesis");
         }
         if (name === "watchlist") {
           const company = page.locator(".company-cell p").filter({ hasText: "Tata Consultancy" });

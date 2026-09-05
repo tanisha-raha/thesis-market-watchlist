@@ -35,6 +35,8 @@ import { ADVICE_QUESTION, explainFinance, isThesisQuestion, boundedConversation 
 import { cleanDisplayName, homeGreeting } from "@/lib/user-profile";
 import { describeSecurity, formatMoney, isSupportedExchangeCode, marketLine, sessionWindow, REGIONS } from "@/lib/securities";
 import { loadSecurities } from "@/lib/securities-server";
+import { availableRanges, defaultRange, rangeSeries } from "@/lib/chart-ranges";
+import { normalizeSymbol } from "@/lib/company";
 import { thesisCondition } from "@/lib/thesis-display";
 import { searchResultsFrom, toQuote, type RawSearchQuote } from "@/lib/market/live";
 import { marketStatusFrom, marketStatusLine, REGION_PRIMARY_INDEX } from "@/lib/market-brief";
@@ -818,6 +820,45 @@ section("Global markets — one product, several exchanges");
     loaded.get(inSymbol)?.currency === "INR" && loaded.get(inSymbol)?.timeZone === "Asia/Kolkata"
     && loaded.get(inSymbol)?.benchmark === "^NSEI");
   await db.delete(symbols).where(inArray(symbols.symbol, [usSymbol, inSymbol]));
+}
+
+
+/* ------------------------------------------------------------------------- */
+section("Company lookup — discovery before you commit to watching");
+{
+  /* --- chart ranges are offered only where observations exist -------------- */
+  const zone = "America/New_York";
+  const dateOf = (at: Date) => exchangeDate(at, zone);
+  const sessions = Array.from({ length: 300 }, (_, i) =>
+    ({ date: new Date(Date.UTC(2025, 0, i + 1)).toISOString().slice(0, 10), close: 100 + (i % 7) }));
+  // One session of five-minute observations, then the same again a day earlier.
+  const path = Array.from({ length: 60 }, (_, i) =>
+    ({ at: new Date(Date.UTC(2026, 8, 4, 13, 30 + i * 5)).toISOString(), price: 200 + (i % 5) }));
+  const older = Array.from({ length: 20 }, (_, i) =>
+    ({ at: new Date(Date.UTC(2026, 8, 1, 13, 30 + i * 5)).toISOString(), price: 190 + (i % 5) }));
+
+  check("a security with only daily bars is never offered an intraday range",
+    availableRanges(sessions, [], dateOf).join() === "1M,3M,1Y");
+  check("an observed intraday path unlocks 1D and 1W",
+    availableRanges(sessions, [...older, ...path], dateOf).join() === "1D,1W,1M,3M,1Y");
+  check("too little history offers no range at all rather than a two-point line",
+    availableRanges(sessions.slice(0, 2), [], dateOf).length === 0 && defaultRange([]) === null);
+  const oneDay = rangeSeries("1D", sessions, [...older, ...path], dateOf);
+  check("1D is the latest observed session only, and never falls back to closes",
+    oneDay.intraday.length === path.length && oneDay.daily.length === 0);
+  check("1W spans the observed week", rangeSeries("1W", sessions, [...older, ...path], dateOf).intraday.length === older.length + path.length);
+  const daily = rangeSeries("3M", sessions, [], dateOf);
+  check("daily ranges are cut to trading sessions, not calendar days",
+    daily.daily.length === 66 && daily.daily.at(-1)!.date === sessions.at(-1)!.date && daily.intraday.length === 0);
+  check("a year of observations is downsampled, never dropped or duplicated",
+    rangeSeries("1Y", sessions, [], dateOf).daily.at(-1)!.date === sessions.at(-1)!.date);
+  check("three months is the default when it exists, otherwise the longest available",
+    defaultRange(availableRanges(sessions, [], dateOf)) === "3M" && defaultRange(["1M"]) === "1M");
+
+  /* --- symbols the lookup will and will not accept ------------------------- */
+  check("provider-shaped symbols are accepted, junk is refused before any request",
+    normalizeSymbol("blk") === "BLK" && normalizeSymbol("infy.ns") === "INFY.NS" && normalizeSymbol("M&M.NS") === "M&M.NS"
+    && normalizeSymbol("../etc/passwd") === null && normalizeSymbol("") === null && normalizeSymbol("A".repeat(40)) === null);
 }
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);

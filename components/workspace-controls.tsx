@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AddSymbolForm } from "@/app/watchlist/add-symbol-form";
 import { Modal } from "@/components/modal";
 import { BrandMark, Icon } from "@/components/ui";
@@ -22,6 +22,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setAdd(null);
     if (window.location.hash.startsWith("#add-stock")) history.replaceState(null, "", window.location.pathname + window.location.search);
   }, []);
+  // `#add-stock` / `#add-stock:SYMBOL` still opens the dialog, so a link into the
+  // add flow keeps working. Search no longer uses it: selecting a company now
+  // opens that company's page, and adding starts from there or from the
+  // watchlist's own button.
   useEffect(() => {
     const fromHash = () => {
       const hash = window.location.hash;
@@ -46,6 +50,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 export function AddStockButton({ label = "Add Stock", compact = false }: { label?: string; compact?: boolean }) {
   const { openAdd } = useWorkspace();
   return <button type="button" onClick={() => openAdd()} className={`button-primary ${compact ? "compact" : ""}`}><Icon name="plus" size={15} />{label}</button>;
+}
+/**
+ * Start watching the company being looked at.
+ *
+ * Deliberately the SAME dialog the watchlist uses — symbol, optional structured
+ * condition, optional note — rather than a second add path that would drift out
+ * of step with it.
+ */
+export function AddToWatchlistButton({ symbol, label = "Add to Watchlist" }: { symbol: string; label?: string }) {
+  const { openAdd } = useWorkspace();
+  return <button type="button" onClick={() => openAdd(symbol)} className="button-primary"><Icon name="plus" size={15} />{label}</button>;
 }
 export function AppSidebar({ active, currentSymbol }: { active: "home" | "watchlist" | "digest" | "ask"; currentSymbol?: string }) {
   const { menuOpen, setMenuOpen } = useWorkspace();
@@ -73,19 +88,17 @@ export function GlobalSearch({ watched }: { watched: string[] }) {
   const [expanded, setExpanded] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const router = useRouter();
-  const pathname = usePathname();
-  const { openAdd } = useWorkspace();
   /**
-   * Selecting a company opens the add dialog. From another screen that means
-   * routing to the watchlist and letting the hash open it; from the watchlist
-   * itself the dialog is opened directly, because a same-page hash change does
-   * not reliably re-notify the listener.
+   * Search is discovery, not an add shortcut.
+   *
+   * Selecting a company opens its detail page — watched or not — so a user can
+   * look at what it is doing before deciding whether the reason to watch it is
+   * worth writing down. Adding still happens through the watchlist's own flow,
+   * from the button on that page.
    */
   const select = (symbol: string) => {
     setExpanded(false); setQuery("");
-    if (watched.includes(symbol)) { router.push(`/symbol/${encodeURIComponent(symbol)}`); return; }
-    if (pathname === "/watchlist") { openAdd(symbol); return; }
-    router.push(`/watchlist#add-stock:${encodeURIComponent(symbol)}`);
+    router.push(`/symbol/${encodeURIComponent(symbol)}`);
   };
   useEffect(() => {
     const shortcut = (e: KeyboardEvent) => {
@@ -118,7 +131,7 @@ export function GlobalSearch({ watched }: { watched: string[] }) {
       {state === "ready" && results.length === 0 && <p>No supported companies found.</p>}
       {results.map((result) => <button key={result.symbol} type="button" onClick={() => select(result.symbol)}>
         <span className="search-company"><strong>{result.name ?? result.symbol}</strong><small><span className="num">{result.symbol}</span>{result.exchange ? ` · ${[result.exchange, result.market].filter(Boolean).join(" · ")}` : ""}</small></span>
-        <span className="text-accent text-meta">{watched.includes(result.symbol) ? "View" : "Add"}<Icon name="chevron" size={13} /></span>
+        <span className="text-accent text-meta">{watched.includes(result.symbol) ? "Watching" : "View"}<Icon name="arrow" size={13} /></span>
       </button>)}
     </div>}
   </div>;

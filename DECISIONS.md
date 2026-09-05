@@ -761,3 +761,57 @@ anywhere on a US security's page. The local-only historical digest fixture
 (`npm run visual-history-check`) is restricted by design to a local database and was
 not runnable against the Neon URL in this pass; the missed-event session frame it
 covers visually is asserted directly in the test suite instead.
+
+---
+
+## Search as discovery (company detail before you commit)
+
+**The old search was an add-shortcut wearing a search bar's clothes.** Selecting a
+result either opened the add dialog or, for a symbol already watched, its page.
+That made inspection impossible: to find out what BlackRock was doing you first
+had to commit to watching it, and the symbol page 404'd for anything not on your
+list. Search now navigates — every result opens that company's page — and adding
+starts from there through the same dialog the watchlist uses. Two intents, two
+places: discovery in search, commitment in the add flow.
+
+**The symbol page serves two different questions, and only one of them is
+personal.** Market information — identity, exchange, currency, price, freshness,
+history, session data, detected events — is shown for any security the provider
+resolves. Thesis, status, evidence, timeline and Replay appear only when this user
+actually watches it. An unwatched company says "add this company to your watchlist
+to define why you're watching it" rather than rendering an empty thesis card that
+looks like a state. A fabricated WATCHING badge on a stranger's page would
+undermine every real one.
+
+**Two data paths, never mixed silently.** A tracked symbol reads committed quotes,
+stored bars, the observed intraday path and computed statistics — no network. A
+company nobody watches gets one cached (2 min quote / 15 min history), bounded,
+read-only provider request; nothing is persisted. That is an interactive lookup,
+not the cold historical backfill the deployed app is forbidden from doing, and the
+distinction is visible in the UI: the panel is badged LIVE LOOKUP and the caption
+says the data was fetched for this lookup and is not being monitored.
+
+**Ranges are offered only where observations exist.** 1D and 1W are drawn from the
+observed intraday path; 1M, 3M and 1Y from daily closes. A security we hold only
+daily bars for gets no 1D button, because a "1D" chart interpolated from two daily
+closes is a different measurement wearing the same label — the same reasoning that
+keeps transient resolution on the intraday series. The chart names what it is
+drawing ("Observed price path" vs "Adjusted daily closes") for the same reason.
+
+**Session data shows only what the source gave us.** Stored bars carry no high or
+low — the schema never claimed them — so those rows are absent on a monitored
+symbol and present on a lookup, where the provider supplies them. Rather than
+padding the panel to a fixed shape, each row exists only if its number does.
+
+**A cached Date is a string.** The first render of a lookup worked and the next one
+threw `RangeError: Invalid time value`: `unstable_cache` round-trips its value
+through JSON, so `asOf` came back as a string and Intl refused it. The cache now
+stores an ISO string explicitly and rebuilds the instant on the way out, refusing a
+quote whose timestamp is unusable. Caught by loading the same page twice, which is
+now what the browser check does.
+
+**Statistics have the same ordering dependency as detection.** Beta is computed
+against the security's market index, which comes from provider metadata, which
+arrives with a quote poll — so `refreshSymbolStats` run against freshly seeded
+symbols produced null betas for the US names. Re-running it after the first poll
+fixed them, and the deployed route already polls before it recomputes.

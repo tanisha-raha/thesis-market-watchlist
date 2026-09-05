@@ -119,19 +119,45 @@ try {
   const priorMessages = await page.locator(".chat-message").count(); await page.reload();
   await expect(page.locator(".chat-message")).toHaveCount(priorMessages);
   check("conversation persists during the same user session", true);
-  /* ---- a US security through the actual product, not just search ---------- */
-  await visit("/watchlist");
+  /* ---- search is discovery: inspect a company before watching it ----------- */
   const search = page.getByLabel("Search companies");
   await search.fill("BlackRock");
   const blk = page.locator(".search-results button", { hasText: "BLK" }).first();
   await blk.waitFor({ timeout: 20000 });
   check("global search returns BlackRock on NYSE, not an NSE-only message", /NYSE/.test(await blk.innerText()) && !/No NSE symbols found/.test(await page.locator(".search-results").innerText()));
+  check("search results offer navigation, not an add shortcut", /View/.test(await blk.innerText()) && !/\bAdd\b/.test(await blk.innerText()));
   await blk.click();
+  await page.waitForURL("**/symbol/BLK", { timeout: 30000 });
+  check("selecting a company opens its detail page without adding it", !(await page.locator(".terminal").innerText()).includes("In watchlist"));
+  const unwatched = await page.locator("body").innerText();
+  check("an unwatched company still shows real market data", /\$[\d,]+\.\d{2}/.test(unwatched) && /NYSE/.test(unwatched) && /Previous close/.test(unwatched));
+  check("an unwatched company has a real chart or a truthful unavailable state",
+    await page.locator(".chart-ranges button").count() > 0 || /Price history temporarily unavailable|Not enough observed history/.test(unwatched));
+  check("no thesis, status or evidence is fabricated for an unwatched company",
+    /Add this company to your watchlist to define why you’re watching it\./.test(unwatched)
+    && /No personal evidence for a company you don’t watch/.test(unwatched)
+    && !/TRIGGERED|CONTRADICTED|STILL VALID/.test(unwatched));
+  for (const [query, expected, exchange] of [["Apple", "AAPL", "NASDAQ"], ["Infosys", "INFY.NS", "NSE"]] as const) {
+    await search.fill(query);
+    const row = page.locator(".search-results button", { hasText: expected }).first();
+    await row.waitFor({ timeout: 20000 });
+    check(`searching ${query} reaches ${expected} on ${exchange}`, new RegExp(exchange).test(await row.innerText()));
+    await row.click();
+    await page.waitForURL(`**/symbol/${encodeURIComponent(expected)}`, { timeout: 30000 });
+    check(`${expected} detail opens without being watched first`, (await page.locator(".symbol-heading").innerText()).includes(exchange));
+  }
+
+  /* ---- and adding starts from that page, through the existing flow -------- */
+  await page.goto(base + "/symbol/BLK");
+  await page.getByRole("button", { name: "Add to Watchlist" }).first().click();
   await page.getByLabel("Waiting for a dip").waitFor({ timeout: 20000 });
-  check("selecting a search result opens Add with that company", (await symbolInput.inputValue()) === "BLK");
+  check("Add to Watchlist opens the existing add flow with the company filled in", (await symbolInput.inputValue()) === "BLK");
   await page.getByLabel("Waiting for a dip").check();
   await page.locator('input[name="low"]').fill("1000"); await page.locator('input[name="high"]').fill("1200");
   await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByText("In watchlist")).toBeVisible({ timeout: 40000 });
+  check("the detail page reflects being watched, with its thesis", /\$1,000\.00 – \$1,200\.00/.test(await page.locator(".thesis-card").innerText()));
+  await visit("/watchlist");
   await page.getByRole("button", { name: "Remove BLK" }).waitFor({ timeout: 40000 });
   const mixedTable = await page.locator(".watchlist-table").innerText();
   check("one watchlist holds both currencies, each in its own units", /\$[\d,]+\.\d{2}/.test(mixedTable) && /₹[\d,]+\.\d{2}/.test(mixedTable));
