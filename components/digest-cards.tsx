@@ -1,16 +1,24 @@
 import Link from "next/link";
-import { formatIST } from "@/lib/time";
+import { formatExchangeTime, formatInZone } from "@/lib/time";
+import { formatMoney, marketLine, sessionWindow, type Security } from "@/lib/securities";
 import { Evidence, UserWords } from "@/components/evidence";
 import type { AnomalyCard, ContradictionCard, MissedCard, TriggerCard } from "@/lib/digest";
 
-const inr = (v: number) =>
-  `₹${new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)}`;
+/**
+ * Every card renders in its security's own units: its currency, its exchange's
+ * clock, its session. A digest holding both an NSE and a NASDAQ event has to be
+ * right about both.
+ */
+const money = (v: number, security: Security) => formatMoney(v, security.currency);
+const at = (value: Date, security: Security) => formatExchangeTime(value, security.timeZone);
 
-function SymbolLink({ symbol, name }: { symbol: string; name: string | null }) {
+function SymbolLink({ symbol, name, security }: { symbol: string; name: string | null; security?: Security }) {
+  const market = security ? marketLine(security) : "";
   return (
     <Link href={`/symbol/${encodeURIComponent(symbol)}`} className="group inline-flex items-baseline gap-2">
       <span className="font-medium underline-offset-2 group-hover:underline">{symbol}</span>
       {name && <span className="text-meta text-faint">{name}</span>}
+      {market && <span className="text-micro text-faint">{market}</span>}
     </Link>
   );
 }
@@ -31,11 +39,11 @@ export function Contradiction({ card }: { card: ContradictionCard }) {
     <article className="border-l-2 border-contradiction bg-contradiction-soft/40 py-4 pl-4 pr-4">
       <header className="flex items-baseline justify-between gap-4">
         <span className="label text-contradiction">Contradicted</span>
-        <time className="text-micro text-faint">{formatIST(card.occurredAt)} IST</time>
+        <time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time>
       </header>
 
       <div className="mt-2">
-        <SymbolLink symbol={card.symbol} name={card.name} />
+        <SymbolLink symbol={card.symbol} name={card.name} security={card.security} />
       </div>
 
       <div className="mt-4">
@@ -95,11 +103,11 @@ export function Trigger({ card }: { card: TriggerCard }) {
     <article className="border-l-2 border-trigger bg-trigger-soft/40 py-4 pl-4 pr-4">
       <header className="flex items-baseline justify-between gap-4">
         <span className="label text-trigger">Condition met</span>
-        <time className="text-micro text-faint">{formatIST(card.occurredAt)} IST</time>
+        <time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time>
       </header>
 
       <div className="mt-2">
-        <SymbolLink symbol={card.symbol} name={card.name} />
+        <SymbolLink symbol={card.symbol} name={card.name} security={card.security} />
       </div>
 
       <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
@@ -108,7 +116,7 @@ export function Trigger({ card }: { card: TriggerCard }) {
       </dl>
 
       {card.note && (
-        <p className="mt-2 text-meta text-muted">&ldquo;{card.note}&rdquo;</p>
+        <p className="mt-2 text-meta text-muted whitespace-pre-wrap">&ldquo;{card.note}&rdquo;</p>
       )}
 
       {card.evidence.length > 0 && (
@@ -141,10 +149,10 @@ export function Missed({ card }: { card: MissedCard }) {
   // without communicating "when". The session is the frame in which a duration
   // is legible — 185 of 375 minutes reads immediately as most of a day. How long
   // the user was away is a separate fact, and is stated as one.
-  const day = card.occurredAt.toISOString().slice(0, 10);
-  const open = new Date(`${day}T03:45:00.000Z`).getTime();   // 09:15 IST
-  const close = new Date(`${day}T10:00:00.000Z`).getTime();  // 15:30 IST
-  const session = close - open;
+  // The frame is THAT security's session on ITS own exchange.
+  const window = sessionWindow(card.security, card.occurredAt);
+  const open = window.open.getTime();
+  const session = window.close.getTime() - open;
 
   const clamp = (n: number) => Math.max(0, Math.min(100, n));
   const left = clamp(((card.occurredAt.getTime() - open) / session) * 100);
@@ -159,15 +167,14 @@ export function Missed({ card }: { card: MissedCard }) {
       </header>
 
       <div className="mt-2 flex items-baseline gap-2">
-        <SymbolLink symbol={card.symbol} name={card.name} />
+        <SymbolLink symbol={card.symbol} name={card.name} security={card.security} />
         <span className="text-meta text-muted">· {card.headline}</span>
       </div>
 
       <figure className="mt-4">
         <figcaption className="label mb-1.5">
-          {new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" })
-            .format(card.occurredAt)}{" "}
-          &mdash; one trading session
+          {formatInZone(card.occurredAt, card.security.timeZone).split(",")[0]}{" "}
+          &mdash; one {card.security.exchange ?? "trading"} session
         </figcaption>
         <div className="relative h-6 rounded-sm bg-line/60">
           <div
@@ -176,16 +183,16 @@ export function Missed({ card }: { card: MissedCard }) {
           />
         </div>
         <div className="mt-1 flex justify-between text-micro text-faint">
-          <span>09:15</span>
+          <span>{window.openLabel}</span>
           <span className="num text-missed">
-            {formatIST(card.occurredAt).split(", ")[1]} → {formatIST(card.resolvedAt).split(", ")[1]}
+            {formatInZone(card.occurredAt, card.security.timeZone).split(", ")[1]} → {formatInZone(card.resolvedAt, card.security.timeZone).split(", ")[1]}
           </span>
-          <span>15:30</span>
+          <span>{window.closeLabel}</span>
         </div>
       </figure>
 
       <p className="mt-3 text-micro text-faint">
-        You were away from {formatIST(card.awayFrom)} to {formatIST(card.awayUntil)}.
+        You were away from {at(card.awayFrom, card.security)} to {at(card.awayUntil, card.security)}.
       </p>
 
       {/*
@@ -196,13 +203,13 @@ export function Missed({ card }: { card: MissedCard }) {
       {card.dailyBlindSpot && (
         <p className="mt-3 border-t border-line pt-3 text-body">
           Closed at{" "}
-          <span className="num font-medium">{inr(card.dailyBlindSpot.close)}</span>
+          <span className="num font-medium">{money(card.dailyBlindSpot.close, card.security)}</span>
           {card.dailyBlindSpot.exactlyAtLevel ? (
             <> &mdash; exactly the level it crossed.</>
           ) : (
             <>
               , back {card.dailyBlindSpot.direction === "above" ? "below" : "above"}{" "}
-              <span className="num">{inr(card.dailyBlindSpot.level)}</span>.
+              <span className="num">{money(card.dailyBlindSpot.level, card.security)}</span>.
             </>
           )}{" "}
           <span className="text-muted">On daily closes this would not appear at all.</span>
@@ -228,10 +235,10 @@ export function Anomaly({ card }: { card: AnomalyCard }) {
     <article className="border-l-2 border-line-strong py-3 pl-4 pr-4">
       <header className="flex items-baseline justify-between gap-4">
         <div className="flex items-baseline gap-2">
-          <SymbolLink symbol={card.symbol} name={card.name} />
+          <SymbolLink symbol={card.symbol} name={card.name} security={card.security} />
           <span className="text-meta text-muted">· {card.signalType.replace(/_/g, " ")}</span>
         </div>
-        <time className="text-micro text-faint">{formatIST(card.occurredAt)} IST</time>
+        <time className="text-micro text-faint">{at(card.occurredAt, card.security)}</time>
       </header>
       {card.evidence.length > 0 && (
         <div className="mt-2">

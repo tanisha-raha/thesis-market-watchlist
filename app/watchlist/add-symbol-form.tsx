@@ -60,38 +60,39 @@ export function AddSymbolForm({ initialSymbol = "", onAdded }: { initialSymbol?:
   return (
     <form action={formAction} className="add-stock-form" aria-busy={pending}>
       <div className="relative">
-        <label className="label" htmlFor="symbol">Add a symbol</label>
+        <label className="label" htmlFor="symbol">Find a company</label>
         <div className="mt-1 flex gap-2">
           <input
             id="symbol" name="symbol" value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="RELIANCE.NS, or search by name" autoComplete="off" className={FIELD}
+            placeholder="Search for a company (e.g. Infosys, Reliance, Apple...)" autoComplete="off" className={FIELD}
           />
           <button
             type="submit" disabled={pending || !query.trim()}
-            className="shrink-0 bg-accent px-4 py-2 text-body font-semibold text-paper
-                       transition-colors hover:bg-[#61e4c4] disabled:opacity-40"
+            className="button-primary shrink-0 disabled:opacity-40"
           >
             {pending ? "Adding…" : "Add"}
           </button>
         </div>
 
+        {/* The same global search as the top bar — one company index for the
+            whole product, not a second NSE-only one hidden in this dialog. */}
         {results.length > 0 && (
-          <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-sm border border-line bg-surface shadow-sm">
+          <ul className="add-search-results absolute z-10 mt-1 w-full overflow-hidden rounded-sm border border-line bg-surface shadow-sm">
             {results.map((r) => (
               <li key={r.symbol}>
                 <button
                   type="button" onClick={() => { setQuery(r.symbol); setResults([]); }}
-                  className="flex w-full items-baseline justify-between px-3 py-2 text-left text-body transition-colors hover:bg-accent-soft"
+                  className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-body transition-colors hover:bg-accent-soft"
                 >
-                  <span className="font-medium">{r.symbol}</span>
-                  <span className="ml-3 truncate text-meta text-muted">{r.name}</span>
+                  <span className="truncate font-medium">{r.name ?? r.symbol}</span>
+                  <span className="shrink-0 text-meta text-muted"><span className="num">{r.symbol}</span>{r.exchange ? ` · ${[r.exchange, r.market].filter(Boolean).join(" · ")}` : ""}</span>
                 </button>
               </li>
             ))}
           </ul>
         )}
-        {searchState === "loading" && <p className="mt-1 text-micro text-faint">Searching NSE symbols…</p>}
-        {searchState === "empty" && <p className="mt-1 text-micro text-faint">No NSE symbols found. You can still enter a ticker directly.</p>}
+        {searchState === "loading" && <p className="mt-1 text-micro text-faint">Searching companies…</p>}
+        {searchState === "empty" && <p className="mt-1 text-micro text-faint">No supported companies found. You can still enter a ticker directly (for example AAPL or INFY.NS).</p>}
         {searchState === "error" && <p className="mt-1 text-micro text-down">Search is unavailable. You can still enter a ticker directly.</p>}
       </div>
 
@@ -113,6 +114,10 @@ export function AddSymbolForm({ initialSymbol = "", onAdded }: { initialSymbol?:
             </label>
           ))}
         </div>
+
+        {needs !== null && (
+          <p className="mt-3 text-micro text-faint">Enter levels in the company’s own trading currency — ₹ for an NSE listing, $ for a US one.</p>
+        )}
 
         {needs === "range" && (
           <div className="mt-3 flex items-end gap-2">

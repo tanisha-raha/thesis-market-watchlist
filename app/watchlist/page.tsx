@@ -6,17 +6,21 @@ import { WatchlistTable } from "./watchlist-table";
 import { AppShell } from "@/components/app-shell";
 import { DashboardCard } from "@/components/ui";
 import { AddStockButton } from "@/components/workspace-controls";
-import { ThesisOverview, ThesisCard } from "@/components/dashboard-widgets";
+import { thesisCondition } from "@/lib/thesis-display";
 
 export const dynamic = "force-dynamic";
 export default async function WatchlistPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const [rows, presentation] = await Promise.all([getWatchlist(user.id), getPresentationData(user.id)]);
-  return <AppShell email={user.email} active="watchlist" rows={rows} demo={presentation.demo}>
-    <div className="page-heading"><div><p className="eyebrow">YOUR IDEAS, IN FOCUS</p><h1>Watchlist</h1><p>The companies you follow. The reasons you keep watching.</p></div><AddStockButton /></div>
-    <DashboardCard title="My Watchlist" meta={<span className="count-chip">{rows.length}</span>} action={<span className="eyebrow">NSE · INR</span>}><WatchlistTable rows={rows} demo={presentation.demo} /></DashboardCard>
-    <div className="two-column mt-4"><ThesisOverview theses={presentation.theses} /><DashboardCard title="Keep the reason in view"><div className="panel-body text-muted leading-relaxed"><p>A watchlist gets more useful when it remembers what you’re waiting for.</p><p className="mt-2">Choose an optional price range, breakout level, or monitoring condition when you add a company.</p><p className="mt-3 text-meta text-faint">Every quote carries its exchange time. Failed updates preserve the last-known price.</p></div></DashboardCard></div>
-    {presentation.theses.length > 0 && <><div className="section-heading"><h2>Your recorded theses</h2><span>Displayed exactly as recorded</span></div><div className="two-column">{presentation.theses.map((thesis) => <ThesisCard key={thesis.id} thesis={thesis} company={rows.find((row) => row.symbol === thesis.symbol)?.name} />)}</div></>}
+  const currencyFor = new Map(rows.map((row) => [row.symbol, row.security.currency]));
+  const conditions = Object.fromEntries(presentation.theses.map((t) => [t.symbol, thesisCondition(t.type, t.params, currencyFor.get(t.symbol) ?? null)]));
+  // A watchlist can hold several markets at once. Say which, rather than
+  // stamping one exchange and one currency across all of them.
+  const markets = [...new Set(rows.map((row) => row.security.marketLabel).filter((m): m is string => m != null))];
+  return <AppShell email={user.email} displayName={user.displayName} active="watchlist" rows={rows} demo={presentation.demo}>
+    <div className="page-heading"><div><p className="eyebrow">YOUR IDEAS, IN FOCUS</p><h1>Watchlist</h1><p>The companies you follow and why.</p></div><AddStockButton /></div>
+    <DashboardCard title="My Watchlist" meta={<span className="count-chip">{rows.length}</span>} action={<span className="eyebrow">{markets.length ? `${markets.join(" · ")} · NATIVE CURRENCY` : "NATIVE CURRENCY"}</span>}><WatchlistTable rows={rows} conditions={conditions} demo={presentation.demo} /></DashboardCard>
+    <p className="page-note">Every price is shown in the company’s own trading currency and every timestamp on its own exchange’s clock — values are never converted or combined across markets. Open a company to see its full thesis, original note and recorded evidence. Prices remain last-known-good when a feed update fails.</p>
   </AppShell>;
 }
