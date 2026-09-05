@@ -18,6 +18,17 @@ export const MARKET_INDICES: { symbol: string; name: string; region: MarketRegio
   { symbol: "^DJI", name: "Dow Jones", region: "US" },
 ];
 
+/**
+ * The name people use for an index, from the same table the market pulse renders.
+ *
+ * One source for "^NSEI is NIFTY 50", so evidence, digests and Home cannot drift
+ * apart — and a provider ticker never reaches a user-facing label. An index we do
+ * not carry falls back to its symbol rather than to a guess.
+ */
+export function indexDisplayName(symbol: string): string {
+  return MARKET_INDICES.find((index) => index.symbol === symbol)?.name ?? symbol;
+}
+
 /** The index whose reported state stands for its market's session. */
 export const REGION_PRIMARY_INDEX: Record<MarketRegion, string> = {
   IN: "^NSEI",

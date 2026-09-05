@@ -35,6 +35,7 @@ try {
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Tanisha Visual");
   await page.locator('input[name="email"]').fill(`visual+${Date.now()}@example.com`);
   await page.locator('input[name="password"]').fill("visual-check-2026");
+  await page.locator('input[name="confirmPassword"]').fill("visual-check-2026");
   await page.getByRole("button", { name: "Create account", exact: true }).click();
   await page.waitForURL(base + "/", { timeout: 40000 });
   await page.goto(base + "/watchlist");
@@ -67,6 +68,14 @@ try {
           if (new Set(heights).size !== 1) throw new Error(`Index cards misaligned: ${heights.join(",")}`);
         }
         if (name === "symbol" || name === "symbol-us") await expect(page.locator("#thesis-replay")).toBeVisible();
+        // Recorded Evidence: tiles or a truthful empty state, never a wall of equal rows.
+        if (name.startsWith("symbol") || name === "company") {
+          const evidence = page.locator(".panel", { hasText: "Recorded Evidence" }).first();
+          await expect(evidence).toBeVisible();
+          const text = await evidence.innerText();
+          if (/\^NSEI|\^GSPC|WATCHING/.test(text)) throw new Error(`Recorded Evidence leaked a ticker or thesis status: ${name}`);
+          if (!/Captured at detection/.test(text)) throw new Error(`Recorded Evidence lost its detection-time guarantee: ${name}`);
+        }
         if (name === "symbol-us") {
           const heading = await page.locator(".symbol-heading").innerText();
           if (heading.includes("₹") || heading.includes("IST")) throw new Error("US security rendered with Indian units");

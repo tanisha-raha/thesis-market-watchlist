@@ -110,11 +110,14 @@ DEFINE → TEST → MONITOR → DETECT → EXPLAIN → REMEMBER
 | Home `/` | Market Brief: personalised greeting, NIFTY 50 / SENSEX / NIFTY BANK and S&P 500 / NASDAQ / Dow, each market's own session state and clock, a compact personal status strip, and current publisher headlines. No stock rows. |
 | Watchlist `/watchlist` | Company management, last-known quotes, freshness, structured condition and status. Responsive cards below desktop table widths. |
 | Digest `/digest` | What happened while away: stored triggers, contradictions, missed/reversed events, evidence and normal read receipts. |
-| Company Detail `/symbol/[symbol]` | Any supported company, watched or not: identity, price, exchange freshness, ranged price history and market data. Watched companies additionally show the original note, structured thesis, evidence, timeline and THESIS Replay. |
+| Company Detail `/symbol/[symbol]` | Any supported company, watched or not: identity, price, exchange freshness, ranged price history, market data, the anomaly layer's verdict, detected events and the Recorded Evidence captured when the latest one fired. Watched companies additionally show the original note, structured thesis, verdict timeline and THESIS Replay. |
 | Ask THESIS `/ask` | Session conversation, separate THESIS DATA / GENERAL labels, contextual stock entry and helpful advice boundary. Never permanently embedded elsewhere. |
 
-The top-right account menu shows only the authenticated identity and offers exactly
-two appearances — Light and Dark — plus sign-out. The preference persists per
+The top-right account menu addresses the user by their stored name — never their
+email address, and never a name derived from one; an account created before names
+existed reads "Account" and can supply a name from a single field in the dropdown.
+The Home greeting uses the same stored name and the reader's own clock. The menu
+offers exactly two appearances — Light and Dark — plus sign-out. The preference persists per
 browser, and a preference stored before the third option was removed resolves to
 Dark. New accounts store a validated display name; legacy names remain nullable and
 fall back to a generic greeting.

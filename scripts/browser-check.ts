@@ -30,10 +30,14 @@ try {
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Tanisha Test");
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
+  await page.locator('input[name="confirmPassword"]').fill(password + "x");
+  check("signup refuses mismatched passwords before submitting", await page.getByRole("button", { name: "Create account", exact: true }).isDisabled());
+  await page.locator('input[name="confirmPassword"]').fill(password);
   await page.getByRole("button", { name: "Create account", exact: true }).click();
   await page.waitForURL(base + "/", { timeout: 40000 });
   await expect(page.getByRole("heading", { name: /Tanisha/ })).toBeVisible();
-  check("signup lands on personalized Home", true);
+  check("signup lands on a Home greeting that uses the stored first name",
+    /Good (morning|afternoon|evening), Tanisha/.test(await page.locator(".home-hero").innerText()));
   for (const name of ["NIFTY 50", "SENSEX", "NIFTY BANK", "S&P 500", "NASDAQ Composite", "Dow Jones"]) {
     await expect(page.locator(".index-card").getByText(name, { exact: true })).toBeVisible();
   }
@@ -51,10 +55,15 @@ try {
   await expect(page.getByRole("heading", { name: "Market Briefing", exact: true })).toBeVisible();
   const links = await page.locator(".news-item").evaluateAll((items) => items.map((a) => ({ href: (a as HTMLAnchorElement).href, source: a.querySelector("p")?.textContent })));
   check("news has real HTTPS links and source/time or truthful unavailable state", links.length ? links.every((a) => a.href.startsWith("https://") && a.source?.includes("IST")) : await page.getByText("Market briefing is unavailable right now.").isVisible());
+  const identity = await page.getByRole("button", { name: "Account menu" }).innerText();
+  check("the account control shows the stored name, never the email", identity.includes("Tanisha Test") && !identity.includes(email));
+  check("the avatar initial comes from the name", identity.trim().startsWith("T"));
   await account();
   await expect(page.locator(".account-profile").getByText("Tanisha Test", { exact: true })).toBeVisible();
   await expect(page.locator(".account-profile").getByText(email, { exact: true })).toBeVisible();
-  check("account menu shows only authenticated identity", true);
+  check("the dropdown makes the name primary and the email secondary",
+    (await page.locator(".account-profile strong").innerText()) === "Tanisha Test"
+    && (await page.locator(".account-profile p").innerText()) === email);
   check("appearance offers exactly Light and Dark", await page.locator('input[name="appearance"]').count() === 2 && await page.getByRole("radio", { name: "System", exact: true }).count() === 0);
   await page.getByRole("radio", { name: "Light", exact: true }).check();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
@@ -111,6 +120,17 @@ try {
   await expect(page.getByRole("heading", { name: "THESIS Replay", exact: true })).toBeVisible();
   check("Replay renders observed result or explicit insufficient history", /Observed occurrences|Not enough observed history/.test(await page.locator("#thesis-replay").innerText()));
 
+  /* ---- recorded evidence: one event, its own stored figures --------------- */
+  const recorded = page.locator(".panel", { hasText: "Recorded Evidence" }).first();
+  await recorded.waitFor({ timeout: 20000 });
+  const recordedText = await recorded.innerText();
+  check("Recorded Evidence names the event it belongs to", /DETECTED|RESOLVED/.test(recordedText) && /IST|EDT|EST|UTC/.test(recordedText));
+  check("Recorded Evidence leads with tiles rather than a table of equals", await recorded.locator(".evidence-tile").count() >= 1);
+  check("Recorded Evidence states that values are detection-time values", /Captured at detection/.test(recordedText));
+  check("Recorded Evidence shows no provider ticker as a label and no thesis status",
+    !/\^NSEI|\^GSPC/.test(recordedText) && !/WATCHING|STILL VALID/.test(recordedText));
+  check("Recorded Evidence stays separate from the anomaly layer", !/UNUSUAL PATTERN|anomaly/i.test(recordedText));
+
   /* ---- the optional anomaly layer, kept in its place ---------------------- */
   const pattern = page.locator(".panel", { hasText: "Market Pattern" }).first();
   await pattern.waitFor({ timeout: 20000 });
@@ -145,7 +165,7 @@ try {
     await page.locator(".chart-ranges button").count() > 0 || /Price history temporarily unavailable|Not enough observed history/.test(unwatched));
   check("no thesis, status or evidence is fabricated for an unwatched company",
     /Add this company to your watchlist to define why you’re watching it\./.test(unwatched)
-    && /No personal evidence for a company you don’t watch/.test(unwatched)
+    && /No personal timeline for a company you don’t watch/.test(unwatched)
     && !/TRIGGERED|CONTRADICTED|STILL VALID/.test(unwatched));
   for (const [query, expected, exchange] of [["Apple", "AAPL", "NASDAQ"], ["Infosys", "INFY.NS", "NSE"]] as const) {
     await search.fill(query);

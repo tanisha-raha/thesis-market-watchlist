@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { homeGreeting } from "@/lib/user-profile";
+import { HomeGreeting } from "@/components/home-greeting";
 import { formatExchangeTime } from "@/lib/time";
 import { DashboardCard, EmptyState, FreshnessBadge, Icon, PriceChange } from "@/components/ui";
 import { PriceChart } from "@/components/price-chart";
@@ -19,7 +20,7 @@ export function HomeHero({ name }: { name: string | null }) {
   return <section className="home-hero">
     <div className="home-hero-copy">
       <span className="eyebrow">YOUR MARKET BRIEF</span>
-      <h1>{homeGreeting(name)}</h1>
+      <h1><HomeGreeting name={name} initial={homeGreeting(name)} /></h1>
       <p>Here’s what’s happening across the markets today.</p>
     </div>
     <p className="home-hero-statement">Markets move.<br />Keep your reason in view.<span aria-hidden="true" /></p>

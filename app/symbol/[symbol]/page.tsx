@@ -11,15 +11,18 @@ import type { StoredThesis } from "@/lib/presentation";
 import { Evidence } from "@/components/evidence";
 import { formatExchangeTime } from "@/lib/time";
 import { formatCount, marketLine } from "@/lib/securities";
+import { signalLabel } from "@/lib/recorded-evidence";
+import { indexDisplayName } from "@/lib/market-brief";
 import { acknowledge } from "@/app/actions";
 import { AppShell } from "@/components/app-shell";
 import { DashboardCard, EmptyState, Icon, CompanyMark, formatPrice, FreshnessBadge, PriceChange, StatusBadge } from "@/components/ui";
-import { ThesisCard, EvidencePanel } from "@/components/dashboard-widgets";
+import { ThesisCard } from "@/components/dashboard-widgets";
 import { SymbolChart } from "@/components/symbol-chart";
 import { AddToWatchlistButton } from "@/components/workspace-controls";
 import { ThesisReplay } from "@/components/thesis-replay";
 import { getThesisReplay } from "@/lib/thesis-replay-server";
 import { MarketPattern } from "@/components/market-pattern";
+import { RecordedEvidence } from "@/components/recorded-evidence";
 import { getLatestAnomaly } from "@/lib/ml/anomaly-server";
 
 /**
@@ -69,8 +72,11 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
   const thesis: StoredThesis | undefined = item?.thesisId && item.thesisCreatedAt
     ? { id: item.thesisId, symbol, type: item.thesisType ?? "none", state: item.thesisState ?? "WATCHING", params: item.thesisParams, note: item.thesisNote, createdAt: item.thesisCreatedAt }
     : undefined;
-  const evidence = verdicts[0] ? evidenceFrom(verdicts[0].evidenceJson as Record<string, unknown>, security.currency)
-    : events[0] ? evidenceFrom(events[0].explainJson as Record<string, unknown>, security.currency) : [];
+  // Recorded Evidence belongs to a detected market event, not to a thesis
+  // verdict: the verdict's own evidence stays in the Thesis Timeline, where the
+  // user's condition lives. Event selection does not exist on this page, so the
+  // most recent event is shown and named explicitly.
+  const latestEvent = events[0];
   const demo = process.env.THESIS_DATA_MODE === "demo";
 
   // The session panel shows only what the source actually gave us: stored bars
@@ -146,10 +152,11 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
           { label: "20-day high / low", value: `${money(stats.high20)} / ${money(stats.low20)}`, basis: "adjusted closes" },
           // Beta is measured against this security's own market index, and says so
           // — or says it is unavailable, rather than borrowing another market's.
+          // The index by name here too, so one page never mixes "NIFTY 50" with "^NSEI".
           { label: "Beta", value: stats.beta60 == null ? "—" : stats.beta60.toFixed(2),
             basis: stats.beta60 == null
-              ? security.benchmark ? `no ${security.benchmark} history stored yet` : "no benchmark for this market"
-              : `60-day, vs ${security.benchmark ?? "benchmark"}` },
+              ? security.benchmark ? `no ${indexDisplayName(security.benchmark)} history stored yet` : "no benchmark for this market"
+              : `60-day, vs ${security.benchmark ? indexDisplayName(security.benchmark) : "benchmark"}` },
           { label: "Sessions held", value: String(stats.sessionsUsed), basis: "traded sessions only" },
         ]} /></div><p className="panel-caption">Computed {at(stats.computedAt)}</p></>
           : <EmptyState title="Reference statistics are not available yet" description={company.watched
@@ -162,19 +169,24 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
       <DashboardCard title="Recent Events & Reversals" meta={<span className="count-chip">{events.length}</span>}>
         {events.length === 0
           ? <EmptyState title="No detected events recorded." description={`THESIS holds ${stats?.sessionsUsed ?? 0} usable sessions for this symbol. No event evidence is available to display.`} />
-          : <div className="symbol-events">{events.map((event) => <article key={event.id} className="symbol-event"><div className="symbol-event-heading"><strong className="text-meta font-medium">{event.signalType.replace(/_/g, " ")}</strong><StatusBadge state={event.resolvedAt ? "RESOLVED" : "DETECTED"} /></div><p className="text-micro text-faint mt-2">Occurred {at(event.occurredAt)} · detected {at(event.detectedAt)}{event.resolvedAt && ` → ${at(event.resolvedAt)} · reversed`}</p><div className="mt-3"><Evidence entries={evidenceFrom(event.explainJson as Record<string, unknown>, security.currency).slice(0, 5)} /></div></article>)}</div>}
+          : <div className="symbol-events">{events.map((event) => <article key={event.id} className={`symbol-event ${event.id === latestEvent?.id ? "is-current" : ""}`}><div className="symbol-event-heading"><strong className="text-meta font-medium">{signalLabel(event.signalType)}</strong><StatusBadge state={event.resolvedAt ? "RESOLVED" : "DETECTED"} /></div><p className="text-micro text-faint mt-2">Occurred {at(event.occurredAt)} · detected {at(event.detectedAt)}{event.resolvedAt && ` → ${at(event.resolvedAt)} · reversed`}</p><div className="mt-3"><Evidence entries={evidenceFrom(event.explainJson as Record<string, unknown>, security.currency).slice(0, 5)} /></div></article>)}</div>}
       </DashboardCard>
       {company.watched
-        ? <><EvidencePanel state={item?.thesisState} entries={evidence} occurredAt={verdicts[0]?.occurredAt ?? events[0]?.occurredAt} timeZone={security.timeZone} /></>
-        : <DashboardCard title="Thesis Status / Evidence" action={<span className="status-badge neutral">NOT WATCHED</span>}>
-            <EmptyState title="No personal evidence for a company you don’t watch" description="Detected market events are shown on the left. Trigger, contradiction and missed-event evidence are recorded against your own stated condition once you add this company." icon="shield" />
+        ? <DashboardCard title="Thesis Timeline" meta={<span className="count-chip">{verdicts.length}</span>}>
+            {verdicts.length
+              ? <div className="symbol-events">{verdicts.map((verdict) => <article key={verdict.id} className="symbol-event"><div className="symbol-event-heading"><StatusBadge state={verdict.kind.toUpperCase()} /><time>{at(verdict.occurredAt)}</time></div><p className="mt-2 text-meta text-muted break-words">{(verdict.conditionsMetJson as string[]).join(", ").replace(/_/g, " ")}</p><div className="mt-3"><Evidence entries={evidenceFrom(verdict.evidenceJson as Record<string, unknown>, security.currency)} /></div></article>)}</div>
+              : <EmptyState title="No thesis verdicts yet" description={thesis ? "Your saved condition has no recorded trigger or contradiction. Its current state is shown in My Thesis." : "Add a structured thesis to monitor the reason you’re watching."} icon="shield" />}
+          </DashboardCard>
+        : <DashboardCard title="Thesis Timeline" action={<span className="status-badge neutral">NOT WATCHED</span>}>
+            <EmptyState title="No personal timeline for a company you don’t watch" description="Detected market events are shown on the left. Trigger, contradiction and missed-event verdicts are recorded against your own stated condition once you add this company." icon="shield" />
           </DashboardCard>}
     </div>
 
-    {company.watched && <div className="two-column mt-4"><DashboardCard title="Thesis Timeline" meta={<span className="count-chip">{verdicts.length}</span>}>
-      {verdicts.length
-        ? <div className="symbol-events">{verdicts.map((verdict) => <article key={verdict.id} className="symbol-event"><div className="symbol-event-heading"><StatusBadge state={verdict.kind.toUpperCase()} /><time>{at(verdict.occurredAt)}</time></div><p className="mt-2 text-meta text-muted break-words">{(verdict.conditionsMetJson as string[]).join(", ").replace(/_/g, " ")}</p><div className="mt-3"><Evidence entries={evidenceFrom(verdict.evidenceJson as Record<string, unknown>, security.currency)} /></div></article>)}</div>
-        : <EmptyState title="No thesis verdicts yet" description={thesis ? "Your saved condition has no recorded trigger or contradiction. Its current state is shown above." : "Add a structured thesis to monitor the reason you’re watching."} icon="shield" />}
-    </DashboardCard></div>}
+    {/* The evidence belongs to the event above it, and says which one. */}
+    <RecordedEvidence
+      event={latestEvent ? { signalType: latestEvent.signalType, occurredAt: latestEvent.occurredAt, resolvedAt: latestEvent.resolvedAt, explain: latestEvent.explainJson as Record<string, unknown> } : null}
+      currency={security.currency}
+      timeZone={security.timeZone}
+      company={company.name ?? symbol} />
   </AppShell>;
 }

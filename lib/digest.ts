@@ -8,6 +8,7 @@ import {
 import { lastCommittedBatchAt } from "@/lib/ingestion";
 import { deriveTradingCalendar } from "@/lib/market/calendar";
 import { describeSecurity, formatMoney, type Security } from "@/lib/securities";
+import { indexDisplayName } from "@/lib/market-brief";
 import { getUnusualSessions } from "@/lib/ml/anomaly-server";
 import { exchangeDate, istDate } from "@/lib/time";
 import type { Bar } from "@/lib/market/types";
@@ -200,13 +201,13 @@ export function evidenceFrom(explain: Record<string, unknown>, currency: string 
   if (has("benchmark_return_pct")) {
     // The benchmark is whatever detection actually measured against, recorded in
     // the event. Never relabelled after the fact.
-    e.push({ label: typeof explain.benchmark === "string" ? explain.benchmark : "Benchmark", value: pct(explain.benchmark_return_pct) });
+    e.push({ label: typeof explain.benchmark === "string" ? indexDisplayName(explain.benchmark) : "Benchmark", value: pct(explain.benchmark_return_pct) });
   }
   if (has("beta_60d")) {
     e.push({
       label: "Beta",
       value: num(explain.beta_60d),
-      basis: typeof explain.benchmark === "string" ? `60-day, vs ${explain.benchmark}` : "60-day, vs benchmark",
+      basis: typeof explain.benchmark === "string" ? `60-day, vs ${indexDisplayName(explain.benchmark)}` : "60-day, vs benchmark",
     });
   }
   if (has("expected_from_benchmark_pct")) {

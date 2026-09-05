@@ -10,6 +10,11 @@ const field =
 function AuthFields({ mode }: { mode: "in" | "up" }) {
   const action = mode === "in" ? signIn : signUp;
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, undefined);
+  // Checked here for an immediate answer; the server checks again, because this
+  // one is a convenience and that one is the rule.
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const mismatch = mode === "up" && confirm.length > 0 && password !== confirm;
 
   return (
       <form action={formAction} className="space-y-4">
@@ -24,8 +29,20 @@ function AuthFields({ mode }: { mode: "in" | "up" }) {
             name="password" type="password" required minLength={8}
             autoComplete={mode === "in" ? "current-password" : "new-password"}
             className={field}
+            value={mode === "up" ? password : undefined}
+            onChange={mode === "up" ? (e) => setPassword(e.target.value) : undefined}
           />
         </label>
+        {mode === "up" && (
+          <label className="block">
+            <span className="label">Confirm password</span>
+            <input
+              name="confirmPassword" type="password" required minLength={8} autoComplete="new-password"
+              className={field} value={confirm} onChange={(e) => setConfirm(e.target.value)}
+            />
+            {mismatch && <span className="mt-1 block text-meta text-down">Those passwords don’t match.</span>}
+          </label>
+        )}
 
         {state?.error && (
           <p className="text-meta text-down" role="alert">{state.error}</p>
@@ -33,7 +50,7 @@ function AuthFields({ mode }: { mode: "in" | "up" }) {
 
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || mismatch}
           className="button-primary auth-submit w-full"
         >
           {pending ? "Please wait…" : mode === "in" ? "Sign in" : "Create account"}

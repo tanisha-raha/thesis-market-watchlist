@@ -32,7 +32,10 @@ import { replayThesis } from "@/lib/thesis-replay";
 import { getThesisReplay } from "@/lib/thesis-replay-server";
 import { priceInRange, breakoutConfirmed } from "@/lib/thesis-conditions";
 import { ADVICE_QUESTION, explainFinance, isThesisQuestion, boundedConversation } from "@/lib/finance-assistant";
-import { cleanDisplayName, homeGreeting } from "@/lib/user-profile";
+import { cleanDisplayName, firstName, homeGreeting } from "@/lib/user-profile";
+import { recordedEvidence, signalLabel } from "@/lib/recorded-evidence";
+import { indexDisplayName } from "@/lib/market-brief";
+import { registerUser, setDisplayName } from "@/lib/auth";
 import { describeSecurity, formatMoney, isSupportedExchangeCode, marketLine, sessionWindow, REGIONS } from "@/lib/securities";
 import { loadSecurities } from "@/lib/securities-server";
 import { availableRanges, defaultRange, rangeSeries } from "@/lib/chart-ranges";
@@ -771,8 +774,8 @@ section("Global markets — one product, several exchanges");
   });
   check("with no benchmark history the residual signal is withheld, not faked",
     withoutBenchmark.every((e) => e.signalType !== "benchmark_residual") && withoutBenchmark.length > 0);
-  check("benchmark labels in stored evidence come from the event itself",
-    evidenceFrom({ benchmark: "^GSPC", benchmark_return_pct: 1, beta_60d: 1.1 }).some((e) => e.label === "^GSPC")
+  check("benchmark labels in stored evidence name the index the event recorded",
+    evidenceFrom({ benchmark: "^GSPC", benchmark_return_pct: 1, beta_60d: 1.1 }).some((e) => e.label === "S&P 500")
     && !JSON.stringify(evidenceFrom({ benchmark: "^GSPC", beta_60d: 1.1 })).includes("NSEI"));
 
   /* --- the missed-event session frame -------------------------------------- */
@@ -1076,6 +1079,105 @@ section("Anomaly evidence — stored once, immutable, and never across data mode
   await db.delete(symbols).where(eq(symbols.symbol, "ANOMALY-EMPTY.NS"));
 }
 await reset();
+
+
+/* ------------------------------------------------------------------------- */
+section("Recorded evidence and account identity");
+{
+  // The real payload shape a benchmark_residual event stores, verbatim.
+  const residualEvent = {
+    signal: "benchmark_residual", beta_60d: 0.6685655792, benchmark: "^NSEI", residual_pct: 3.4306312019666017,
+    trading_date: "2026-09-04", fire_threshold_z: 2, stock_return_pct: 3.498542274052485,
+    benchmark_return_pct: 0.1015772785777358, z_vs_20d_realized_vol: 3.205336108207599,
+    realized_vol_20d_daily: 0.0107028751, expected_from_benchmark_pct: 0.06791107208588368,
+  };
+  const view = recordedEvidence({ signalType: "benchmark_residual", explain: residualEvent, currency: "INR", company: "SBI Life" });
+  check("the strongest recorded figures become tiles, in priority order",
+    view.tiles.map((t) => t.key).join() === "move,residual,price" || view.tiles.map((t) => t.key).join() === "move,residual",
+    view.tiles.map((t) => `${t.label} ${t.value}`).join(" | "));
+  check("tile values are the stored values, unrounded beyond display",
+    view.tiles[0].value === "+3.50%" && view.tiles[0].detail === "3.2σ vs recent volatility"
+    && view.tiles.find((t) => t.key === "residual")?.value === "+3.43%");
+  check("benchmarks are named, never shown as provider tickers",
+    view.context.some((row) => row.label === "NIFTY 50") && !view.context.some((row) => row.label.startsWith("^"))
+    && indexDisplayName("^GSPC") === "S&P 500" && indexDisplayName("^UNKNOWN") === "^UNKNOWN");
+  check("context carries what the move was measured against",
+    view.context.some((r) => r.label === "60-day beta") && view.context.some((r) => r.label === "Market-implied move")
+    && view.context.some((r) => r.label === "20-day realized volatility"));
+  check("the interpretation is descriptive, deterministic and never causal or directional",
+    view.interpretation === "SBI Life moved substantially more than the broader market during this recorded event."
+    && !/\b(bullish|bearish|good|bad|buy|sell|because|caused|will|should|likely)\b/i.test(view.interpretation!)
+    && view.interpretation === recordedEvidence({ signalType: "benchmark_residual", explain: residualEvent, currency: "INR", company: "SBI Life" }).interpretation);
+
+  const volumeEvent = { signal: "volume_anomaly", volume: 1720132, volume_vs_median: 2.1098432580348807, median_volume_20d: 815289, trading_date: "2026-09-04" };
+  const volumeView = recordedEvidence({ signalType: "volume_anomaly", explain: volumeEvent, currency: "INR", company: "SBI Life" });
+  check("an event with only volume evidence renders only the tiles it has",
+    volumeView.tiles.length === 1 && volumeView.tiles[0].value === "2.1×" && volumeView.tiles[0].detail === "vs 20-day median",
+    JSON.stringify(volumeView.tiles));
+  check("a missing figure produces no tile rather than an empty one",
+    volumeView.tiles.every((tile) => tile.value !== "" && tile.value !== "—")
+    && recordedEvidence({ signalType: "price_move", explain: {}, currency: "INR", company: "X" }).tiles.length === 0);
+  check("an event with no usable evidence offers no interpretation",
+    recordedEvidence({ signalType: "price_move", explain: {}, currency: "INR", company: "X" }).interpretation === null);
+
+  const crossing = { signal: "cross_20d_low", level: 1715, price: 1713.7, level_source: "20-day range", distance_from_level_pct: 0.0758, realized_vol_20d_daily: 0.0107 };
+  const crossingView = recordedEvidence({ signalType: "cross_20d_low", explain: crossing, currency: "INR", company: "SBI Life" });
+  check("a level crossing falls through to the level and price it recorded",
+    crossingView.tiles.map((t) => t.key).join() === "level,price" && crossingView.tiles[0].value === "₹1,715.00"
+    && crossingView.headline === "20-day low crossed");
+  check("a magnitude keeps its direction from the event type, not from its sign",
+    recordedEvidence({ signalType: "trend_below_ma20", explain: { price: 1122.29, ma_20d: 1152.41, distance_from_ma_pct: 2.61 }, currency: "USD", company: "BlackRock" })
+      .tiles.find((t) => t.key === "ma")?.detail === "below the 20-day average");
+  check("event types read as English, not as identifiers",
+    signalLabel("price_move") === "Price move" && signalLabel("cross_52w_high") === "52-week high crossed"
+    && signalLabel("some_new_signal") === "Some new signal");
+  check("recorded evidence reads stored values only — no recomputation from a live quote",
+    !readFileSync("lib/recorded-evidence.ts", "utf8").includes("quotes") && !readFileSync("components/recorded-evidence.tsx", "utf8").includes("quotes"));
+
+  /* --- account identity ---------------------------------------------------- */
+  const morning = new Date("2026-09-05T04:00:00Z");
+  check("the greeting is time-aware and uses the first name only",
+    homeGreeting("Tanisha Raha", morning) === "Good morning, Tanisha"
+    && homeGreeting("Tanisha Raha", new Date("2026-09-05T08:00:00Z")) === "Good afternoon, Tanisha"
+    && homeGreeting("Tanisha Raha", new Date("2026-09-05T14:00:00Z")) === "Good evening, Tanisha");
+  // The same instant, two readers: 22:00 UTC is evening in New York and the small
+  // hours in Mumbai, so the greeting has to follow the reader rather than the server.
+  const evening = new Date("2026-09-05T22:00:00Z");
+  check("the greeting follows the reader's own timezone when given one",
+    homeGreeting("Tanisha", evening, "America/New_York") === "Good evening, Tanisha"
+    && homeGreeting("Tanisha", evening, "Asia/Kolkata") === "Good morning, Tanisha");
+  check("an account with no stored name is greeted generically, never from its email",
+    homeGreeting(null, morning) === "Welcome back" && homeGreeting("   ", morning) === "Welcome back"
+    && firstName(null) === null && firstName("  ") === null && firstName("Tanisha Raha") === "Tanisha");
+
+  const suffix = Date.now();
+  const named = await registerUser(`named+${suffix}@example.com`, "correct-horse-battery", "Tanisha Raha");
+  check("a new account persists the name it was created with", named.ok);
+  if (named.ok) {
+    const [row] = await db.select().from(users).where(eq(users.id, named.userId));
+    check("the stored name is the single source for identity", row.displayName === "Tanisha Raha");
+    // A legacy account: the column exists, the value does not.
+    await db.update(users).set({ displayName: null }).where(eq(users.id, named.userId));
+    const [legacy] = await db.select().from(users).where(eq(users.id, named.userId));
+    check("a legacy account keeps working with no name at all",
+      legacy.displayName === null && homeGreeting(legacy.displayName, morning) === "Welcome back");
+    check("a legacy account can supply its name without a profile system",
+      (await setDisplayName(named.userId, "  Tanisha   Raha ")).ok
+      && (await db.select().from(users).where(eq(users.id, named.userId)))[0].displayName === "Tanisha Raha");
+    check("an empty or oversized name is refused",
+      !(await setDisplayName(named.userId, "   ")).ok && !(await setDisplayName(named.userId, "x".repeat(81))).ok);
+    await db.delete(users).where(eq(users.id, named.userId));
+  }
+  // Behavioural, not prose: no OS-preference lookup anywhere, and the only two
+  // appearance values offered are light and dark.
+  check("appearance offers exactly two choices, and no OS preference is consulted",
+    !readFileSync("components/theme-toggle.tsx", "utf8").includes("matchMedia")
+    && !readFileSync("app/layout.tsx", "utf8").includes("matchMedia")
+    && readFileSync("components/account-menu.tsx", "utf8").includes('(["light", "dark"] as const)')
+    && !/"system"|'system'|>System</.test(readFileSync("components/account-menu.tsx", "utf8")));
+  check("the account control never renders an email as the identity",
+    !readFileSync("components/account-menu.tsx", "utf8").includes("name || email"));
+}
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

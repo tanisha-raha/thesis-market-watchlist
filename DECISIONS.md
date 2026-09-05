@@ -915,3 +915,66 @@ one session; over the last 120 NVDA sessions it flagged exactly one — 2026-08-
 +8.7% on 2.7× volume with a 6.3% gap and a break above the 20-day range. Roughly
 one session in a hundred, which is what a 99th-percentile threshold should
 produce, and few enough that a flag still means something.
+
+---
+
+## Recorded Evidence, and an account with a name
+
+**"Thesis Status / Evidence" was two cards wearing one heading.** It put a personal
+thesis status — WATCHING — on top of six identically weighted market measurements,
+which implied the numbers were evidence about the user's reasoning rather than
+about a market event, and read as a developer diagnostics table. The replacement,
+**Recorded Evidence**, answers one question: what did THESIS observe when this
+event was detected.
+
+**Hierarchy instead of a table of equals.** Two or three figures carry the event
+and get size — the move (with its standardized size), how much trading it took,
+and how much of it was the company rather than the market — and everything they
+were measured against drops to a quiet context list beneath. The tiles are chosen
+from a priority list against what the event actually stored, so a level-crossing
+event falls through to the level it crossed rather than rendering an empty "price
+move" tile. Nothing is invented to fill a slot, and an event with no usable
+figures renders no tiles at all.
+
+**Detection-time values, said plainly.** Everything is read from the event's
+stored `explain_json`; nothing is recomputed from the latest quote. The old
+caption said "values reflect that event, not the latest quote" — the same
+guarantee now reads "Captured at detection · values preserved from this event",
+and a test asserts the module never touches the quotes table.
+
+**Benchmarks are named.** `^NSEI` is a provider identifier, not a label for a
+person: `indexDisplayName` resolves it from the same `MARKET_INDICES` table Home
+renders, so evidence, digests, reference levels and the market pulse cannot drift
+apart. Provider symbols stay internal.
+
+**One deterministic sentence, or none.** When the stored figures support it, the
+card states what was recorded — "moved substantially more than the broader market
+during this recorded event". No LLM, no causality, no direction called good or
+bad, and silence when the numbers do not support a sentence.
+
+**Event selection did not exist and was not invented.** The page shows the most
+recent event, names it in the header ("Move against the market · 4 Sep, 15:30
+IST") and marks that row in Recent Events & Reversals with a hairline. Adding
+selection state would have meant making the events list a client component for a
+UX task that did not ask for it.
+
+**The surfaces stay separate.** My Thesis owns why the user is watching; Thesis
+Replay owns how their condition behaved historically; Market Pattern owns the
+anomaly model's single claim; Recent Events owns what happened; Recorded Evidence
+owns what was measured when it happened. `EvidencePanel`, now superseded, was
+deleted rather than left as a second evidence surface.
+
+**An email address is an identifier, not an identity.** The header now says
+"Tanisha Raha" because the name was already stored (migration 0007) — no schema
+change was needed, only using the field consistently for the trigger label, the
+dropdown, the avatar initial and the greeting. An account created before names
+existed reads "Account" with a neutral avatar glyph: deriving "Tanisharaha055"
+from an email would be inventing a name, which is the same failure as inventing a
+number. Such an account can supply one from a single field in the dropdown —
+deliberately one input and one action, not a profile system.
+
+**The greeting follows the reader's clock.** It is rendered on the server in IST
+so the hero is never blank, then recomputed in the browser's own timezone after
+mount, because "good evening" at someone's breakfast was the giveaway that the
+greeting belonged to the server. Signup also confirms the password, checked in the
+browser for an immediate answer and again on the server, where the rule lives.

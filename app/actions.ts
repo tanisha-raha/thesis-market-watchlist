@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { authenticate, createSession, destroySession, getSessionUser, registerUser } from "@/lib/auth";
+import { authenticate, createSession, destroySession, getSessionUser, registerUser, setDisplayName } from "@/lib/auth";
 import { addSymbol, removeSymbol } from "@/lib/watchlist";
 import { acknowledgeThesis, createThesis, creationContext } from "@/lib/thesis";
 import { advanceDigestWatermark } from "@/lib/digest";
@@ -28,7 +28,10 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
 export async function signUp(_prev: FormState, formData: FormData): Promise<FormState> {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
   const displayName = String(formData.get("displayName") ?? "");
+  // Checked on the server too: the browser check is a convenience, not the rule.
+  if (password !== confirmPassword) return { error: "Those passwords don’t match." };
   try {
     const result = await registerUser(email, password, displayName);
     if (!result.ok) return { error: result.error };
@@ -37,6 +40,22 @@ export async function signUp(_prev: FormState, formData: FormData): Promise<Form
     return { error: "We couldn’t create your account right now. Please try again." };
   }
   redirect("/");
+}
+
+/**
+ * Records the name for an account created before names existed.
+ *
+ * Deliberately one field and one action rather than a profile system: without it
+ * a legacy account would be addressed as "Account" forever, and inventing a name
+ * from its email address is exactly what this product must not do.
+ */
+export async function saveDisplayName(_prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+  const result = await setDisplayName(user.id, String(formData.get("displayName") ?? ""));
+  if (!result.ok) return { error: result.error };
+  revalidatePath("/", "layout");
+  return {};
 }
 
 export async function signOut(): Promise<void> {

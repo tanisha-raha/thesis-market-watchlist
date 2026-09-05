@@ -4,7 +4,7 @@ import { IST } from "@/lib/time";
 import { formatMoney } from "@/lib/securities";
 import type { WatchlistRow } from "@/lib/watchlist";
 
-export type IconName = "home" | "watchlist" | "digest" | "chat" | "search" | "plus" | "arrow" | "logout" | "close" | "menu" | "activity" | "shield" | "chevron" | "send" | "sun" | "moon";
+export type IconName = "home" | "watchlist" | "digest" | "chat" | "search" | "plus" | "arrow" | "logout" | "close" | "menu" | "activity" | "shield" | "chevron" | "send" | "sun" | "moon" | "user";
 const paths: Record<IconName, ReactNode> = {
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></>,
   moon: <path d="M20.5 13.5A9 9 0 0 1 10.5 3 9 9 0 1 0 20.5 13.5Z" />,
@@ -22,6 +22,7 @@ const paths: Record<IconName, ReactNode> = {
   shield: <><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z" /><path d="m8 12 3 3 5-6" /></>,
   chevron: <path d="m9 5 7 7-7 7" />,
   send: <><path d="m3 10 18-7-7 18-3-8-8-3Zm8 3L21 3" /></>,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4 20a8 8 0 0 1 16 0" /></>,
 };
 export function Icon({ name, size = 18, className = "" }: { name: IconName; size?: number; className?: string }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`shrink-0 ${className}`}>{paths[name]}</svg>;

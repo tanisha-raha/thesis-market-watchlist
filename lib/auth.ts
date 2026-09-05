@@ -98,6 +98,14 @@ export function validateCredentials(email: string, password: string): string | n
   return null;
 }
 
+/** Sets a display name on an existing account. Validation is shared with signup. */
+export async function setDisplayName(userId: number, value: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const invalid = validateDisplayName(value);
+  if (invalid) return { ok: false, error: invalid };
+  await db.update(users).set({ displayName: cleanDisplayName(value) }).where(eq(users.id, userId));
+  return { ok: true };
+}
+
 export async function registerUser(email: string, password: string, displayName: string): Promise<AuthResult> {
   const invalid = validateDisplayName(displayName) ?? validateCredentials(email, password);
   if (invalid) return { ok: false, error: invalid };
