@@ -229,10 +229,46 @@ function previousIntent(history: Turn[]): ResolvedIntent | null {
  */
 const NAMES_SOMETHING = /\s[A-Z][A-Za-z.&'-]{2,}/;
 
+/**
+ * Words that carry no subject: interrogatives, auxiliaries, articles,
+ * prepositions and the small talk around a question. A message built only from
+ * these is elliptical — "Why?", "How so?", "Tell me more" — and means nothing
+ * without the turn before it. Anything else is a subject the message brought
+ * with it.
+ */
+const FUNCTION_WORDS = new Set([
+  "why", "how", "what", "whats", "when", "where", "who", "whom", "whose",
+  "is", "are", "was", "were", "be", "been", "am", "do", "does", "did", "done",
+  "can", "could", "would", "should", "shall", "will", "may", "might", "must", "has", "have", "had",
+  "the", "a", "an", "and", "or", "but", "if", "so", "then", "than", "as", "at", "by",
+  "of", "to", "in", "on", "for", "from", "with", "about", "into", "over", "up", "down",
+  "more", "less", "most", "least", "again", "also", "too", "even", "just", "really",
+  "please", "tell", "show", "explain", "say", "give", "me", "us", "my", "our",
+  "ok", "okay", "yes", "no", "not", "still", "else", "now", "here", "there", "sure",
+]);
+
+/**
+ * Does the message name its own subject?
+ *
+ * This is the whole fix for a narrow misroute: "Why do companies issue shares?"
+ * is five words with no pronoun, and a bare word count called that a follow-up,
+ * so asked straight after a grounded answer it inherited the user's records and
+ * was answered from them. It brings "companies", "issue" and "shares" with it —
+ * it is a finance question that happens to be short, and short is not the same
+ * as referential.
+ */
+function hasOwnSubject(text: string): boolean {
+  return text.toLowerCase().split(/[^a-z']+/)
+    .some((word) => word.length > 1 && !FUNCTION_WORDS.has(word) && !REFERENCE.test(word));
+}
+
 function isFollowUp(text: string, concepts: string[], named: string[]): boolean {
   if (OWNERSHIP.test(text) || DEFINITION.test(text)) return false;
   if (named.length || concepts.length || NAMES_SOMETHING.test(text)) return false;
-  return REFERENCE.test(text) || text.split(/\s+/).length <= 6;
+  // A reference word points at the last turn whatever else is in the sentence.
+  if (REFERENCE.test(text)) return true;
+  // Otherwise only a short message with no subject of its own is a follow-up.
+  return text.split(/\s+/).length <= 6 && !hasOwnSubject(text);
 }
 
 /**

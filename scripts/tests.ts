@@ -1415,6 +1415,25 @@ section("Ask THESIS — a conversation, not nine separate questions");
   check("a measurement follow-up keeps both companies and singles out the metric",
     c5b.intent === "FOLLOW_UP" && c5b.resolved === "GENERAL" && c5b.carried && c5b.metric === "volatility" && c5b.symbols.length === 2);
 
+  /* --- short is not the same as referential ------------------------------ */
+  // A standalone finance question asked straight after a grounded answer must
+  // not inherit the user's records just because it is short.
+  const afterGrounded = [say("user", "Why am I watching SBILIFE?"), say("assistant", "You recorded…", "THESIS DATA", ["SBILIFE.NS"])];
+  const afterGeneral = [say("user", "What is beta?"), say("assistant", "Beta measures…", "GENERAL")];
+  const standalone = ["Why do companies issue shares?", "What is a market?", "Why do stocks fall after earnings?",
+    "How do interest rates affect companies?", "What is the difference between a stock and a bond?"];
+  check("a standalone finance question stays general after a grounded answer",
+    standalone.every((question) => resolveTurn(question, afterGrounded, catalogue).resolved === "GENERAL"),
+    standalone.filter((q) => resolveTurn(q, afterGrounded, catalogue).resolved !== "GENERAL").join(" / "));
+  check("a referential follow-up after a grounded answer stays grounded",
+    ["Was that unusual?", "What would invalidate it?", "Why does that matter?"]
+      .every((question) => resolveTurn(question, afterGrounded, catalogue).resolved === "GROUNDED_THESIS"));
+  check("a referential follow-up after a general answer stays general",
+    ["Why does that matter?", "Which one is more volatile?", "Why?", "Tell me more"]
+      .every((question) => resolveTurn(question, afterGeneral, catalogue).resolved === "GENERAL"));
+  check("an elliptical follow-up still carries the concept it refers to",
+    resolveTurn("Why does that matter?", afterGeneral, catalogue).concepts.includes("beta"));
+
   /* --- what a comparison may and may not say ----------------------------- */
   const row = (symbol: string, name: string, over: Partial<ComparisonRow> = {}) => ({
     symbol, name, security: describeSecurity({ symbol, name, exchange: symbol.endsWith(".NS") ? "NSE" : "NASDAQ", currency: symbol.endsWith(".NS") ? "INR" : "USD", timeZone: symbol.endsWith(".NS") ? "Asia/Kolkata" : "America/New_York" }),
