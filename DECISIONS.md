@@ -1268,3 +1268,28 @@ Two additive tables, nothing existing referenced. 283 assertions including the
 four health transitions, the conservative cases, idempotency, read state, user
 and LIVE/DEMO isolation; 48 smoke checks, 144 browser checks, the visual matrix
 in three appearances, navigation assertions unchanged, and a clean build.
+
+## 2026-09-06 — Aurora, turned up; and a channel nobody can switch on
+
+Aurora was too polite to be a choice. Every value in it sat at five to eleven
+percent, which is exactly the range where a second dark theme is indistinguishable
+from the first, and a theme nobody can tell apart is not a theme.
+
+The light now appears in three places at once rather than only at the corners of
+the window: the ambient field behind the page, a second closer field over the
+working area so colour sits between the cards, and a glow under the heading of
+every screen — which is where the eye lands, and therefore the reason it reads
+differently the instant it is switched on. The base itself carries a violet cast,
+teal runs into cyan on the primary action, cyan runs into violet on the active
+navigation item, and magenta appears only at the far edges of the field.
+
+What did not change is the part that carries meaning. Emerald is still positive,
+coral still negative, amber still a reversal, violet still the anomaly layer and
+nowhere else. Text is never coloured, nothing is frosted, and the constraint that
+made the first version safe still holds: the aurora block declares no size,
+position, spacing or type, and a test parses the stylesheet to prove it.
+
+The WhatsApp row is gone from the preferences panel. Delivery is still
+channel-aware — notifications carry a `channel`, generation is written against it,
+and the schema is untouched — but an option a user cannot switch on is clutter
+rather than a roadmap, and a product should not advertise what it cannot do.

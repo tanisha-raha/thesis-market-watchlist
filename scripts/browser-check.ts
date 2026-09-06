@@ -324,8 +324,8 @@ try {
     /In-app notifications/.test(dropdown) && /My condition triggers/.test(dropdown)
     && /My thesis is invalidated/.test(dropdown)
     && (await page.locator('#account-dropdown input[type="checkbox"]:checked').count()) === 6);
-  check("WhatsApp is labelled unavailable rather than pretending to send",
-    /WhatsApp alerts/.test(dropdown) && /UNAVAILABLE/.test(dropdown) && /not configured for this deployment/.test(dropdown));
+  check("no channel the product cannot actually deliver on is offered",
+    !/WhatsApp/i.test(dropdown) && !/UNAVAILABLE/.test(dropdown));
   const saved = page.waitForResponse((r) => r.url().endsWith("/api/notifications") && r.request().method() === "POST");
   await page.getByRole("checkbox", { name: "My condition triggers" }).uncheck();
   await expect(page.getByRole("checkbox", { name: "My condition triggers" })).not.toBeChecked();

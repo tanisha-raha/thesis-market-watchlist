@@ -101,16 +101,11 @@ export function AccountMenu({ name, email, logout }: { name: string | null; emai
           <span>{label}</span>
         </label>)}</div>
         {/*
-          Channel-aware, and honest about it. WhatsApp needs a provider account,
-          a verified business sender, approved templates and explicit opt-in;
-          none of that is configured, so the row says so rather than implying a
-          message would ever be sent.
+          Only in-app delivery is exposed, because only in-app delivery exists.
+          Notifications carry a `channel` and generation is written against it,
+          so another channel is a row value and a delivery adapter — but an
+          option a user cannot switch on is clutter, not a roadmap.
         */}
-        <label className="notify-toggle is-unavailable">
-          <span>WhatsApp alerts</span>
-          <span className="status-badge neutral">UNAVAILABLE</span>
-        </label>
-        <small>WhatsApp delivery is not configured for this deployment. Nothing is sent anywhere until you opt in.</small>
       </fieldset>
       <div className="account-signout" onClick={() => { try { sessionStorage.removeItem("thesis-conversation"); } catch {} }}>{logout}</div>
     </section>}

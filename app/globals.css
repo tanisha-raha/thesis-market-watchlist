@@ -132,13 +132,13 @@ html[data-theme="light"] {
  */
 html[data-theme="aurora"] {
   color-scheme: dark;
-  --color-paper: #05070f;
-  --color-surface: #0c1322;
-  --color-ink: #e9f1ff;
-  --color-muted: #a4b6d2;
-  --color-faint: #6e83a4;
-  --color-line: #17203a;
-  --color-line-strong: #2b3960;
+  --color-paper: #050611;
+  --color-surface: #0d1226;
+  --color-ink: #ecf2ff;
+  --color-muted: #adbcdb;
+  --color-faint: #7788ad;
+  --color-line: #1d2245;
+  --color-line-strong: #333c6e;
   --color-accent: #34e2b0;
   --color-accent-soft: #0b3340;
   --color-up: #3fe3ad;
@@ -149,26 +149,28 @@ html[data-theme="aurora"] {
   --color-contradiction-soft: #2c1524;
   --color-missed: #f0c274;
   --color-missed-soft: #2e2417;
-  --surface-shell: #070b16;
-  --surface-card: #0b1322;
-  --surface-input: #0e1728;
-  --surface-raised: #16203a;
-  --surface-positive: #082f31;
+  --surface-shell: #080a1c;
+  --surface-card: #0c1226;
+  --surface-input: #101733;
+  --surface-raised: #1a2145;
+  --surface-positive: #08333a;
   --border-positive: #1e6a63;
   --on-accent: #02201a;
   --accent-hover: #5cf0c6;
   --badge-positive-bg: #0b3a33;
   --badge-negative-bg: #391c2c;
-  --badge-neutral-bg: #14263e;
+  --badge-neutral-bg: #1a2350;
   --badge-amber-bg: #322916;
   /* Violet is the anomaly layer's colour and is used nowhere else. */
-  --analytical-soft: #1f1846;
-  --note-surface: #0c1322;
-  --overlay: #02040bd9;
+  --analytical-soft: #2a1d63;
+  --note-surface: #0e1330;
+  --overlay: #03041099;
   --health-strong: #3fe3ad;      --health-strong-soft: #06342e;
   --health-attention: #f0c274;   --health-attention-soft: #2e2417;
   --health-weakened: #ff9f5a;    --health-weakened-soft: #331d0f;
   --health-invalidated: #ff8ea6; --health-invalidated-soft: #2c1524;
+  /* Teal sits between emerald and cyan and is what the primary action runs to. */
+  --aurora-teal: 45, 212, 191;
   /* Ambient hues, referenced by the treatments at the end of this file. */
   --aurora-emerald: 52, 226, 176;
   --aurora-cyan: 56, 189, 248;
@@ -884,7 +886,6 @@ html[data-theme="light"] .home-hero { border-color: #b9ccd6; }
 
 .account-notifications { margin-top: 4px; }
 .notify-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; padding: 4px 0; }
-.notify-toggle.is-unavailable { color: var(--color-faint); }
 .notify-heading { margin-top: 10px; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-faint); }
 .notify-options { display: grid; gap: 7px; margin-top: 8px; }
 .notify-options label { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--color-muted); }
@@ -900,28 +901,84 @@ html[data-theme="light"] .home-hero { border-color: #b9ccd6; }
  * Everything below is scoped to the aurora appearance and changes only colour,
  * background and border — no size, position, spacing or visibility anywhere, so
  * the layout the other themes render is the layout this one renders.
+ *
+ * WHAT MAKES IT AURORA AND NOT JUST A DARKER DARK. Coloured light appears in
+ * three places at once: a wide ambient field behind the page, a soft glow under
+ * the heading of every screen, and a hairline on the cards themselves — teal and
+ * cyan through the middle, violet where the machine-learning layer speaks, a
+ * trace of magenta at the far edges. Text is never coloured, nothing is frosted,
+ * and semantic colour is untouched: emerald still means positive, coral still
+ * means negative, amber still means a reversal. The light is around the numbers,
+ * never on them.
  */
 
 /* The ambient field. Fixed, behind everything, and never under body text. */
 html[data-theme="aurora"] body,
 html[data-theme="aurora"] body:has(.terminal) {
   background:
-    radial-gradient(120% 62% at 82% -14%, rgba(var(--aurora-emerald), 0.11), transparent 62%),
-    radial-gradient(92% 55% at 4% 2%, rgba(var(--aurora-blue), 0.10), transparent 60%),
-    radial-gradient(86% 62% at 98% 86%, rgba(var(--aurora-violet), 0.09), transparent 62%),
-    radial-gradient(58% 44% at 26% 104%, rgba(var(--aurora-pink), 0.05), transparent 60%),
+    radial-gradient(96% 58% at 78% -16%, rgba(var(--aurora-teal), 0.20), transparent 60%),
+    radial-gradient(84% 52% at 6% -6%, rgba(var(--aurora-blue), 0.19), transparent 58%),
+    radial-gradient(92% 60% at 100% 62%, rgba(var(--aurora-violet), 0.20), transparent 62%),
+    radial-gradient(70% 48% at 12% 88%, rgba(var(--aurora-pink), 0.13), transparent 60%),
+    radial-gradient(64% 46% at 52% 108%, rgba(var(--aurora-cyan), 0.10), transparent 62%),
     var(--color-paper);
   background-attachment: fixed;
 }
 
-/* Chrome sits above the field, tinted rather than lit. */
-html[data-theme="aurora"] .app-sidebar,
-html[data-theme="aurora"] .top-bar {
-  background: linear-gradient(180deg, rgba(var(--aurora-blue), 0.05), transparent 70%), var(--surface-shell);
+/*
+ * A second, closer field over the working area, so colour is present between the
+ * cards and not only at the corners of the window.
+ */
+html[data-theme="aurora"] .workspace-content,
+html[data-theme="aurora"] .auth-page {
+  background:
+    radial-gradient(58% 40% at 88% 0%, rgba(var(--aurora-violet), 0.13), transparent 64%),
+    radial-gradient(52% 36% at 2% 24%, rgba(var(--aurora-teal), 0.10), transparent 62%),
+    radial-gradient(46% 34% at 66% 100%, rgba(var(--aurora-pink), 0.08), transparent 62%);
 }
-html[data-theme="aurora"] .app-sidebar { border-right-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 12%, var(--color-line)); }
-html[data-theme="aurora"] .top-bar { border-bottom-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 12%, var(--color-line)); }
-html[data-theme="aurora"] .app-sidebar::before { opacity: .26; }
+
+/* Chrome sits above the field, lit along its inner edge. */
+html[data-theme="aurora"] .app-sidebar {
+  background:
+    linear-gradient(180deg, rgba(var(--aurora-violet), 0.16), rgba(var(--aurora-blue), 0.06) 46%, transparent 78%),
+    var(--surface-shell);
+  border-right-color: color-mix(in srgb, rgb(var(--aurora-violet)) 26%, var(--color-line));
+}
+html[data-theme="aurora"] .top-bar {
+  background:
+    linear-gradient(96deg, rgba(var(--aurora-teal), 0.11), rgba(var(--aurora-blue), 0.07) 44%, rgba(var(--aurora-violet), 0.12) 100%),
+    var(--surface-shell);
+  border-bottom-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 24%, var(--color-line));
+}
+html[data-theme="aurora"] .app-sidebar::before { opacity: .3; }
+html[data-theme="aurora"] .terminal-footer,
+html[data-theme="aurora"] .public-footer { border-top-color: color-mix(in srgb, rgb(var(--aurora-violet)) 20%, var(--color-line)); }
+
+/*
+ * The heading of every screen gets the glow. This is the single biggest reason
+ * aurora reads differently the moment it is switched on: the light is where the
+ * eye lands first, not tucked into a corner.
+ */
+html[data-theme="aurora"] .home-hero,
+html[data-theme="aurora"] .hero-panel,
+html[data-theme="aurora"] .chat-header {
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 26%, var(--color-line));
+  box-shadow:
+    inset 0 1px 0 rgba(var(--aurora-cyan), 0.18),
+    0 26px 60px -40px rgba(var(--aurora-violet), 0.85);
+}
+/* The photograph stays; the light is laid over it, not in place of it. */
+html[data-theme="aurora"] .home-hero {
+  background:
+    radial-gradient(72% 120% at 2% 0%, rgba(var(--aurora-teal), 0.26), transparent 60%),
+    radial-gradient(66% 130% at 98% 100%, rgba(var(--aurora-violet), 0.30), transparent 62%),
+    linear-gradient(94deg, #080f22f2 0%, #0a1428c4 46%, #0d162c99 100%),
+    url('/images/thesis-mountains.png') center 52% / cover;
+}
+html[data-theme="aurora"] .page-heading h1 {
+  /* A wash behind the title, not on the letters: the text keeps its own colour. */
+  background: radial-gradient(120% 260% at 0% 50%, rgba(var(--aurora-cyan), 0.16), transparent 62%);
+}
 
 /* Cards stay dark and readable: one hairline of colour, no glass. */
 html[data-theme="aurora"] .panel,
@@ -930,74 +987,139 @@ html[data-theme="aurora"] .attention-item,
 html[data-theme="aurora"] .evidence-tile,
 html[data-theme="aurora"] .symbol-event,
 html[data-theme="aurora"] .chat-message {
-  background: linear-gradient(177deg, rgba(255, 255, 255, 0.022), transparent 58%), var(--surface-card);
-  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 9%, var(--color-line));
+  background:
+    linear-gradient(168deg, rgba(var(--aurora-cyan), 0.055), transparent 52%),
+    var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 20%, var(--color-line));
+}
+html[data-theme="aurora"] .index-card {
+  background:
+    linear-gradient(158deg, rgba(var(--aurora-violet), 0.10), rgba(var(--aurora-teal), 0.05) 60%, transparent),
+    var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-violet)) 24%, var(--color-line));
+}
+html[data-theme="aurora"] .metric-card {
+  border-color: color-mix(in srgb, rgb(var(--aurora-blue)) 24%, var(--color-line));
+  box-shadow: 0 16px 40px -34px rgba(var(--aurora-blue), 0.8);
 }
 
 /* The two cards that carry the product's argument get a restrained glow. */
 html[data-theme="aurora"] .thesis-card,
 html[data-theme="aurora"] .replay-panel {
-  border-color: color-mix(in srgb, rgb(var(--aurora-emerald)) 20%, var(--color-line));
-  box-shadow: 0 18px 44px -34px rgba(var(--aurora-emerald), 0.55);
+  border-color: color-mix(in srgb, rgb(var(--aurora-teal)) 34%, var(--color-line));
+  box-shadow: 0 20px 48px -32px rgba(var(--aurora-teal), 0.75);
 }
 html[data-theme="aurora"] .recorded-evidence {
-  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 20%, var(--color-line));
-  box-shadow: 0 18px 44px -34px rgba(var(--aurora-cyan), 0.45);
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 34%, var(--color-line));
+  box-shadow: 0 20px 48px -32px rgba(var(--aurora-cyan), 0.7);
 }
 /* Violet, and only here: the anomaly layer is secondary evidence. */
 html[data-theme="aurora"] .market-pattern {
-  border-color: color-mix(in srgb, rgb(var(--aurora-violet)) 22%, var(--color-line));
-  box-shadow: 0 18px 44px -34px rgba(var(--aurora-violet), 0.5);
+  background:
+    linear-gradient(166deg, rgba(var(--aurora-violet), 0.14), transparent 58%),
+    var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-violet)) 40%, var(--color-line));
+  box-shadow: 0 20px 48px -30px rgba(var(--aurora-violet), 0.9);
 }
-html[data-theme="aurora"] .market-pattern .status-badge.amber {
+html[data-theme="aurora"] .market-pattern .status-badge.amber,
+html[data-theme="aurora"] .market-pattern .status-badge.neutral {
   background: var(--analytical-soft);
-  color: #c3b0ff;
+  color: #cbb6ff;
 }
 
-/* Navigation: a restrained gradient on the active item only. */
+/* Navigation: cyan into violet on the active item, and only there. */
 html[data-theme="aurora"] .sidebar-link.active {
-  background: linear-gradient(90deg, rgba(var(--aurora-emerald), 0.15), rgba(var(--aurora-blue), 0.09) 62%, transparent);
+  background: linear-gradient(92deg, rgba(var(--aurora-cyan), 0.24), rgba(var(--aurora-violet), 0.20) 58%, transparent);
+  color: #9defe0;
 }
 html[data-theme="aurora"] .sidebar-link.active::before {
-  background: linear-gradient(180deg, rgb(var(--aurora-emerald)), rgb(var(--aurora-blue)));
+  background: linear-gradient(180deg, rgb(var(--aurora-cyan)), rgb(var(--aurora-violet)));
 }
-html[data-theme="aurora"] .sidebar-link:hover { background: rgba(var(--aurora-blue), 0.08); }
+html[data-theme="aurora"] .sidebar-link:hover { background: rgba(var(--aurora-violet), 0.14); }
+html[data-theme="aurora"] .nav-active-dot { background: rgb(var(--aurora-cyan)); }
 
-/* The one primary action. Emerald into cyan, and nothing else gets a gradient. */
+/* The one primary action. Teal into cyan, and nothing else gets a gradient. */
 html[data-theme="aurora"] .button-primary {
-  background: linear-gradient(102deg, #2fd6a6, #35a8f0);
+  background: linear-gradient(102deg, #29d6b4, #3ec0ff);
   border-color: transparent;
   color: #02201a;
+  box-shadow: 0 12px 30px -18px rgba(var(--aurora-cyan), 0.85);
 }
-html[data-theme="aurora"] .button-primary:hover { background: linear-gradient(102deg, #47e6bb, #4fbaff); }
+html[data-theme="aurora"] .button-primary:hover { background: linear-gradient(102deg, #45e8c6, #5cceff); }
+html[data-theme="aurora"] .button-secondary {
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 34%, var(--color-line-strong));
+  background: rgba(var(--aurora-teal), 0.10);
+}
 html[data-theme="aurora"] .short-rule,
-html[data-theme="aurora"] .brand-mark i:first-child { background: linear-gradient(90deg, rgb(var(--aurora-emerald)), rgb(var(--aurora-blue))); }
+html[data-theme="aurora"] .brand-mark i:first-child { background: linear-gradient(90deg, rgb(var(--aurora-teal)), rgb(var(--aurora-violet))); }
+html[data-theme="aurora"] .brand-mark i:nth-child(4) { background: rgb(var(--aurora-cyan)); }
+
+/* Selection and focus lean violet and magenta — the interactive half of the palette. */
+html[data-theme="aurora"] :focus-visible { outline-color: rgb(var(--aurora-cyan)); }
+html[data-theme="aurora"] ::selection { background: rgba(var(--aurora-violet), 0.42); color: var(--color-ink); }
+html[data-theme="aurora"] .appearance-options input:checked + span {
+  border-color: rgba(var(--aurora-violet), 0.6);
+  background: rgba(var(--aurora-violet), 0.16);
+  color: #cbb6ff;
+}
 
 /* Inputs, dropdowns, search and overlays keep their shapes and gain a tint. */
-html[data-theme="aurora"] .global-search { border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 14%, var(--color-line-strong)); }
-html[data-theme="aurora"] .global-search:focus-within { border-color: rgba(var(--aurora-emerald), 0.55); }
-html[data-theme="aurora"] .search-results,
-html[data-theme="aurora"] .account-panel,
-html[data-theme="aurora"] .add-stock-form {
-  background: linear-gradient(180deg, rgba(var(--aurora-blue), 0.06), transparent 60%), var(--surface-card);
-  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 14%, var(--color-line-strong));
+html[data-theme="aurora"] .global-search {
+  background: linear-gradient(96deg, rgba(var(--aurora-teal), 0.07), rgba(var(--aurora-violet), 0.07)), var(--surface-input);
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 28%, var(--color-line-strong));
 }
+html[data-theme="aurora"] .global-search:focus-within {
+  border-color: rgba(var(--aurora-cyan), 0.7);
+  box-shadow: 0 0 0 3px rgba(var(--aurora-violet), 0.16);
+}
+html[data-theme="aurora"] .search-results,
+html[data-theme="aurora"] .account-dropdown,
+html[data-theme="aurora"] .notification-panel,
+html[data-theme="aurora"] .add-stock-form {
+  background:
+    linear-gradient(172deg, rgba(var(--aurora-violet), 0.12), rgba(var(--aurora-teal), 0.05) 62%, transparent),
+    var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-violet)) 32%, var(--color-line-strong));
+  box-shadow: 0 30px 70px -34px rgba(var(--aurora-violet), 0.7);
+}
+html[data-theme="aurora"] .chat-prompts button:hover {
+  background: rgba(var(--aurora-violet), 0.14);
+  border-color: rgba(var(--aurora-cyan), 0.4);
+}
+html[data-theme="aurora"] .watchlist-table tbody tr:hover { background: rgba(var(--aurora-violet), 0.12); }
 
 /* Status colour keeps its meanings: emerald positive, coral negative. */
-html[data-theme="aurora"] .status-badge { background: var(--badge-neutral-bg); color: #9fb4d4; }
+html[data-theme="aurora"] .status-badge { background: var(--badge-neutral-bg); color: #a9bae0; }
 html[data-theme="aurora"] .status-badge.positive,
 html[data-theme="aurora"] .status-badge.neutral { background: var(--badge-positive-bg); color: #5cecbb; }
 html[data-theme="aurora"] .status-badge.negative { background: var(--badge-negative-bg); color: #ff9eb2; }
 html[data-theme="aurora"] .status-badge.amber { background: var(--badge-amber-bg); color: #f0c274; }
+/* Informational evidence reads cyan; the measured figures themselves do not. */
+html[data-theme="aurora"] .eyebrow { color: #8fb6d8; }
+html[data-theme="aurora"] .evidence-tile {
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 26%, var(--color-line));
+}
+
+/* Charts: the grid recedes into violet, the series keep their own meanings. */
+html[data-theme="aurora"] .index-spark svg line,
+html[data-theme="aurora"] .price-chart line { color: rgba(var(--aurora-violet), 0.5); }
 
 /* Loading frames read as ambient light rather than as grey boxes. */
 html[data-theme="aurora"] .is-loading {
-  background: linear-gradient(100deg, rgba(var(--aurora-emerald), 0.05), rgba(var(--aurora-violet), 0.05)), var(--surface-card);
+  background: linear-gradient(100deg, rgba(var(--aurora-teal), 0.10), rgba(var(--aurora-violet), 0.12)), var(--surface-card);
 }
-html[data-theme="aurora"] .notification-panel,
 html[data-theme="aurora"] .thesis-health,
 html[data-theme="aurora"] .digest-health > a {
-  background: linear-gradient(178deg, rgba(255, 255, 255, 0.022), transparent 58%), var(--surface-card);
-  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 12%, var(--color-line));
+  background: linear-gradient(168deg, rgba(var(--aurora-cyan), 0.06), transparent 56%), var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 20%, var(--color-line));
 }
-html[data-theme="aurora"] .notification-list > li.is-unread { background: rgba(var(--aurora-emerald), 0.07); }
+html[data-theme="aurora"] .notification-list > li.is-unread { background: rgba(var(--aurora-teal), 0.12); }
+html[data-theme="aurora"] .notification-badge { background: linear-gradient(102deg, #ff9f5a, #ff7aa8); color: #1a0a14; }
+
+/* Auth screens carry the same light, so the product does not change character at sign-in. */
+html[data-theme="aurora"] .auth-story,
+html[data-theme="aurora"] .auth-principles li,
+html[data-theme="aurora"] .auth-card {
+  border-color: color-mix(in srgb, rgb(var(--aurora-violet)) 26%, var(--color-line));
+}
+html[data-theme="aurora"] .auth-landscape { opacity: .5; }
