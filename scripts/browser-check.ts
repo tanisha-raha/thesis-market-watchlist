@@ -67,7 +67,14 @@ try {
   check("the dropdown makes the name primary and the email secondary",
     (await page.locator(".account-profile strong").innerText()) === "Tanisha Test"
     && (await page.locator(".account-profile p").innerText()) === email);
-  check("appearance offers exactly Light and Dark", await page.locator('input[name="appearance"]').count() === 2 && await page.getByRole("radio", { name: "System", exact: true }).count() === 0);
+  check("appearance offers exactly Light, Dark and Aurora",
+    await page.locator('input[name="appearance"]').count() === 3
+    && await page.getByRole("radio", { name: "System", exact: true }).count() === 0
+    && (await Promise.all(["Light", "Dark", "Aurora"].map((name) => page.getByRole("radio", { name, exact: true }).count()))).every((n) => n === 1));
+  await page.getByRole("radio", { name: "Aurora", exact: true }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "aurora");
+  check("aurora is a persisted appearance, not a separate layout",
+    (await page.evaluate(() => localStorage.getItem("thesis-theme"))) === "aurora");
   await page.getByRole("radio", { name: "Light", exact: true }).check();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.keyboard.press("Escape");

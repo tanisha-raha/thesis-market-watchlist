@@ -10,12 +10,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       {/*
-        Two appearances, and dark is the product's own. An OS-following third
-        option meant the app could look different from one visit to the next
-        without anyone choosing it; a stored "system" preference now resolves to
-        dark and is rewritten on the next visit.
+        Three appearances — light, dark and aurora — and dark is the product's
+        own default. An OS-following option meant the app could look different
+        from one visit to the next without anyone choosing it; a stored "system"
+        preference resolves to dark and is rewritten on the next visit.
       */}
-      <head><script id="thesis-theme-init" dangerouslySetInnerHTML={{ __html: `(function(){var t;try{t=localStorage.getItem('thesis-theme')}catch(e){}document.documentElement.dataset.theme=t==='light'?'light':'dark'})()` }} /></head>
+      <head><script id="thesis-theme-init" dangerouslySetInnerHTML={{ __html: `(function(){var t;try{t=localStorage.getItem('thesis-theme')}catch(e){}document.documentElement.dataset.theme=t==='light'||t==='aurora'?t:'dark'})()` }} /></head>
       <body className="min-h-screen">
         <div className="flex min-h-screen flex-col">
           <main className="flex-1">{children}</main>

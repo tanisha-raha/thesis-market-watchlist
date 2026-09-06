@@ -1,6 +1,6 @@
 "use client";
 import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
-import { useTheme } from "@/components/theme-toggle";
+import { THEMES, useTheme } from "@/components/theme-toggle";
 import { saveDisplayName } from "@/app/actions";
 import { Icon } from "@/components/ui";
 import type { FormState } from "@/app/actions";
@@ -51,7 +51,7 @@ export function AccountMenu({ name, email, logout }: { name: string | null; emai
         </div>
         {nameState?.error && <small role="alert">{nameState.error}</small>}
       </form>}
-      <fieldset><legend>Appearance</legend><div className="appearance-options">{(["light", "dark"] as const).map((value) => <label key={value}><input type="radio" name="appearance" value={value} checked={theme === value} onChange={() => choose(value)} /><span>{value[0].toUpperCase() + value.slice(1)}</span></label>)}</div></fieldset>
+      <fieldset><legend>Appearance</legend><div className="appearance-options">{THEMES.map((value) => <label key={value}><input type="radio" name="appearance" value={value} checked={theme === value} onChange={() => choose(value)} /><span>{value[0].toUpperCase() + value.slice(1)}</span></label>)}</div></fieldset>
       <div className="account-signout" onClick={() => { try { sessionStorage.removeItem("thesis-conversation"); } catch {} }}>{logout}</div>
     </section>}
   </div>;

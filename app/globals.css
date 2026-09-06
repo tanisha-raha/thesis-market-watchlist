@@ -109,6 +109,61 @@ html[data-theme="light"] {
   --overlay: #20323e80;
 }
 
+/**
+ * Aurora — the same instrument, seen at night.
+ *
+ * A third appearance, not a third layout: every rule below is a token value or a
+ * background, so spacing, type, hierarchy and every component's structure are
+ * byte-for-byte the ones the other two themes use. Colour still carries meaning,
+ * which is the whole constraint here — emerald for positive, coral for negative,
+ * violet reserved for the anomaly layer's secondary evidence, cyan for
+ * informational context. The ambient light lives behind the page and never
+ * behind text, so a card stays a dark, readable surface with a hairline of
+ * colour rather than a pane of frosted glass.
+ */
+html[data-theme="aurora"] {
+  color-scheme: dark;
+  --color-paper: #05070f;
+  --color-surface: #0c1322;
+  --color-ink: #e9f1ff;
+  --color-muted: #a4b6d2;
+  --color-faint: #6e83a4;
+  --color-line: #17203a;
+  --color-line-strong: #2b3960;
+  --color-accent: #34e2b0;
+  --color-accent-soft: #0b3340;
+  --color-up: #3fe3ad;
+  --color-down: #ff8ea6;
+  --color-trigger: #3fe3ad;
+  --color-trigger-soft: #06342e;
+  --color-contradiction: #ff8ea6;
+  --color-contradiction-soft: #2c1524;
+  --color-missed: #f0c274;
+  --color-missed-soft: #2e2417;
+  --surface-shell: #070b16;
+  --surface-card: #0b1322;
+  --surface-input: #0e1728;
+  --surface-raised: #16203a;
+  --surface-positive: #082f31;
+  --border-positive: #1e6a63;
+  --on-accent: #02201a;
+  --accent-hover: #5cf0c6;
+  --badge-positive-bg: #0b3a33;
+  --badge-negative-bg: #391c2c;
+  --badge-neutral-bg: #14263e;
+  --badge-amber-bg: #322916;
+  /* Violet is the anomaly layer's colour and is used nowhere else. */
+  --analytical-soft: #1f1846;
+  --note-surface: #0c1322;
+  --overlay: #02040bd9;
+  /* Ambient hues, referenced by the treatments at the end of this file. */
+  --aurora-emerald: 52, 226, 176;
+  --aurora-cyan: 56, 189, 248;
+  --aurora-blue: 58, 138, 255;
+  --aurora-violet: 150, 110, 255;
+  --aurora-pink: 255, 122, 176;
+}
+
 html {
   background: var(--color-paper);
   color: var(--color-ink);
@@ -751,4 +806,104 @@ html[data-theme="light"] .home-hero { border-color: #b9ccd6; }
   .home-hero h1 { font-size: 24px; }
   .account-trigger > span:not(.user-avatar) { display: none; }
   .replay-panel .panel-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+}
+
+/* ------------------------------------------------------------------ aurora */
+/*
+ * Everything below is scoped to the aurora appearance and changes only colour,
+ * background and border — no size, position, spacing or visibility anywhere, so
+ * the layout the other themes render is the layout this one renders.
+ */
+
+/* The ambient field. Fixed, behind everything, and never under body text. */
+html[data-theme="aurora"] body,
+html[data-theme="aurora"] body:has(.terminal) {
+  background:
+    radial-gradient(120% 62% at 82% -14%, rgba(var(--aurora-emerald), 0.11), transparent 62%),
+    radial-gradient(92% 55% at 4% 2%, rgba(var(--aurora-blue), 0.10), transparent 60%),
+    radial-gradient(86% 62% at 98% 86%, rgba(var(--aurora-violet), 0.09), transparent 62%),
+    radial-gradient(58% 44% at 26% 104%, rgba(var(--aurora-pink), 0.05), transparent 60%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+
+/* Chrome sits above the field, tinted rather than lit. */
+html[data-theme="aurora"] .app-sidebar,
+html[data-theme="aurora"] .top-bar {
+  background: linear-gradient(180deg, rgba(var(--aurora-blue), 0.05), transparent 70%), var(--surface-shell);
+}
+html[data-theme="aurora"] .app-sidebar { border-right-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 12%, var(--color-line)); }
+html[data-theme="aurora"] .top-bar { border-bottom-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 12%, var(--color-line)); }
+html[data-theme="aurora"] .app-sidebar::before { opacity: .26; }
+
+/* Cards stay dark and readable: one hairline of colour, no glass. */
+html[data-theme="aurora"] .panel,
+html[data-theme="aurora"] .metric-card,
+html[data-theme="aurora"] .attention-item,
+html[data-theme="aurora"] .evidence-tile,
+html[data-theme="aurora"] .symbol-event,
+html[data-theme="aurora"] .chat-message {
+  background: linear-gradient(177deg, rgba(255, 255, 255, 0.022), transparent 58%), var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 9%, var(--color-line));
+}
+
+/* The two cards that carry the product's argument get a restrained glow. */
+html[data-theme="aurora"] .thesis-card,
+html[data-theme="aurora"] .replay-panel {
+  border-color: color-mix(in srgb, rgb(var(--aurora-emerald)) 20%, var(--color-line));
+  box-shadow: 0 18px 44px -34px rgba(var(--aurora-emerald), 0.55);
+}
+html[data-theme="aurora"] .recorded-evidence {
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 20%, var(--color-line));
+  box-shadow: 0 18px 44px -34px rgba(var(--aurora-cyan), 0.45);
+}
+/* Violet, and only here: the anomaly layer is secondary evidence. */
+html[data-theme="aurora"] .market-pattern {
+  border-color: color-mix(in srgb, rgb(var(--aurora-violet)) 22%, var(--color-line));
+  box-shadow: 0 18px 44px -34px rgba(var(--aurora-violet), 0.5);
+}
+html[data-theme="aurora"] .market-pattern .status-badge.amber {
+  background: var(--analytical-soft);
+  color: #c3b0ff;
+}
+
+/* Navigation: a restrained gradient on the active item only. */
+html[data-theme="aurora"] .sidebar-link.active {
+  background: linear-gradient(90deg, rgba(var(--aurora-emerald), 0.15), rgba(var(--aurora-blue), 0.09) 62%, transparent);
+}
+html[data-theme="aurora"] .sidebar-link.active::before {
+  background: linear-gradient(180deg, rgb(var(--aurora-emerald)), rgb(var(--aurora-blue)));
+}
+html[data-theme="aurora"] .sidebar-link:hover { background: rgba(var(--aurora-blue), 0.08); }
+
+/* The one primary action. Emerald into cyan, and nothing else gets a gradient. */
+html[data-theme="aurora"] .button-primary {
+  background: linear-gradient(102deg, #2fd6a6, #35a8f0);
+  border-color: transparent;
+  color: #02201a;
+}
+html[data-theme="aurora"] .button-primary:hover { background: linear-gradient(102deg, #47e6bb, #4fbaff); }
+html[data-theme="aurora"] .short-rule,
+html[data-theme="aurora"] .brand-mark i:first-child { background: linear-gradient(90deg, rgb(var(--aurora-emerald)), rgb(var(--aurora-blue))); }
+
+/* Inputs, dropdowns, search and overlays keep their shapes and gain a tint. */
+html[data-theme="aurora"] .global-search { border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 14%, var(--color-line-strong)); }
+html[data-theme="aurora"] .global-search:focus-within { border-color: rgba(var(--aurora-emerald), 0.55); }
+html[data-theme="aurora"] .search-results,
+html[data-theme="aurora"] .account-panel,
+html[data-theme="aurora"] .add-stock-form {
+  background: linear-gradient(180deg, rgba(var(--aurora-blue), 0.06), transparent 60%), var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 14%, var(--color-line-strong));
+}
+
+/* Status colour keeps its meanings: emerald positive, coral negative. */
+html[data-theme="aurora"] .status-badge { background: var(--badge-neutral-bg); color: #9fb4d4; }
+html[data-theme="aurora"] .status-badge.positive,
+html[data-theme="aurora"] .status-badge.neutral { background: var(--badge-positive-bg); color: #5cecbb; }
+html[data-theme="aurora"] .status-badge.negative { background: var(--badge-negative-bg); color: #ff9eb2; }
+html[data-theme="aurora"] .status-badge.amber { background: var(--badge-amber-bg); color: #f0c274; }
+
+/* Loading frames read as ambient light rather than as grey boxes. */
+html[data-theme="aurora"] .is-loading {
+  background: linear-gradient(100deg, rgba(var(--aurora-emerald), 0.05), rgba(var(--aurora-violet), 0.05)), var(--surface-card);
 }

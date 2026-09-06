@@ -1151,3 +1151,32 @@ conversations answered correctly, every label right, no error card, and no
 "not connected" fallback anywhere. 256 assertions, 48 smoke checks, 113 browser
 checks including the five conversations end to end, the visual matrix, the
 navigation assertions and a clean production build.
+
+## 2026-09-06 — Aurora: a third appearance, not a third product
+
+Aurora is the same instrument seen at night. Every rule for it is a token value
+or a background: no size, position, spacing, type or visibility is declared
+anywhere inside its block, so the layout, density and information hierarchy the
+other two appearances render are exactly the ones it renders. A test enforces
+that — it parses the aurora section of the stylesheet, fails on any layout or
+typographic property, and fails on any rule not scoped to the appearance.
+
+Colour still has to carry meaning, which is the whole constraint. Emerald stays
+positive, coral stays negative, amber stays a reversal, and violet is introduced
+for exactly one thing: the anomaly layer's secondary evidence, which is why the
+Market Pattern card gained a class name and nothing else. The ambient light is
+four wide radial gradients fixed behind the page; cards remain dark, opaque
+surfaces with a hairline of colour, because a chart of somebody's money should
+not be read through frosted glass. Only the primary action and the active
+navigation item take a gradient, and both are one step, emerald into blue.
+
+The preference persists exactly as before — one localStorage key, resolved by the
+same inline script before first paint, with anything unrecognised still migrating
+to dark on read. Nothing in the product can behave differently because of which
+appearance is selected: there is no branch in any component, only a data
+attribute on the root element.
+
+Verified across four viewports from 390px to 1536px in all three appearances —
+133 layout captures, none overflowing — plus 258 assertions, 48 smoke checks, 114
+browser checks including the appearance selector and its persistence, the
+navigation assertions and a clean production build.

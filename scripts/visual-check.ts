@@ -31,7 +31,7 @@ try {
   for (const size of sizes) {
     await page.setViewportSize(size);
     await page.goto(base + "/login");
-    for (const mode of ["dark", "light"]) {
+    for (const mode of ["dark", "light", "aurora"]) {
       await theme(mode); await shot(`signin-${mode}-${size.width}`);
       await page.getByRole("button", { name: "Create account", exact: true }).click();
       await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
@@ -63,7 +63,7 @@ try {
   }
   for (const size of sizes) {
     await page.setViewportSize(size);
-    for (const mode of ["dark", "light"]) {
+    for (const mode of ["dark", "light", "aurora"]) {
       await theme(mode);
       for (const [name, path] of [["home", "/"], ["watchlist", "/watchlist"], ["digest", "/digest"], ["symbol", "/symbol/INFY.NS"], ["symbol-us", "/symbol/BLK"], ["company", "/symbol/MSFT"], ["ask", "/ask?symbol=INFY.NS"]]) {
         await page.goto(base + path); await expect(page.locator(".terminal")).toBeVisible();

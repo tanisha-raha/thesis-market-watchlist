@@ -1192,11 +1192,22 @@ section("Recorded evidence and account identity");
   }
   // Behavioural, not prose: no OS-preference lookup anywhere, and the only two
   // appearance values offered are light and dark.
-  check("appearance offers exactly two choices, and no OS preference is consulted",
+  check("appearance offers exactly three named choices, and no OS preference is consulted",
     !readFileSync("components/theme-toggle.tsx", "utf8").includes("matchMedia")
     && !readFileSync("app/layout.tsx", "utf8").includes("matchMedia")
-    && readFileSync("components/account-menu.tsx", "utf8").includes('(["light", "dark"] as const)')
+    && readFileSync("components/theme-toggle.tsx", "utf8").includes('export const THEMES = ["light", "dark", "aurora"] as const;')
+    && readFileSync("components/account-menu.tsx", "utf8").includes("{THEMES.map(")
     && !/"system"|'system'|>System</.test(readFileSync("components/account-menu.tsx", "utf8")));
+  // Aurora is a token set, not a second product: it may restyle, never re-lay-out.
+  {
+    const aurora = readFileSync("app/globals.css", "utf8").split("/* ------------------------------------------------------------------ aurora */")[1] ?? "";
+    const layoutProperty = /(?:^|[;{\s])(display|position|grid-template[a-z-]*|flex(?:-[a-z]+)?|gap|width|height|min-width|min-height|max-width|max-height|padding[a-z-]*|margin[a-z-]*|font-size|font-family|letter-spacing|line-height|inset|top|right|bottom|left|order|visibility|overflow[a-z-]*)\s*:/;
+    check("the aurora appearance changes colour only, never layout or type",
+      aurora.length > 500 && !layoutProperty.test(aurora.replace(/\/\*[\s\S]*?\*\//g, "")));
+    check("every aurora rule is scoped to the aurora appearance",
+      aurora.split("\n").filter((line) => /^\S.*\{/.test(line) || /^html/.test(line))
+        .every((line) => line.includes('html[data-theme="aurora"]')));
+  }
   check("the account control never renders an email as the identity",
     !readFileSync("components/account-menu.tsx", "utf8").includes("name || email"));
 }

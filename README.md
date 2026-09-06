@@ -51,7 +51,7 @@ appear at all."* — which is the clearest demonstration of what THESIS is for.
 | ![Recorded Evidence tiles captured at detection time](docs/screenshots/06-recorded-evidence.png) | ![Market Pattern — Isolation Forest anomaly classification with the signals it saw](docs/screenshots/04-market-pattern.png) |
 | **Recorded Evidence.** The figures captured when the event fired, never recomputed from the latest quote. | **Market Pattern.** The anomaly layer's one claim, kept separate from the evidence it saw. |
 | ![Thesis Replay showing how the condition behaved across observed sessions](docs/screenshots/05-thesis-replay.png) | ![THESIS in light mode](docs/screenshots/09-light-mode.png) |
-| **Thesis Replay.** How *your* condition behaved against observed history — occurrences, not returns. | **Light mode.** The same information hierarchy, two appearances. |
+| **Thesis Replay.** How *your* condition behaved against observed history — occurrences, not returns. | **Light mode.** The same information hierarchy in every appearance — Light, Dark and Aurora. |
 
 *Every screenshot is the running application against real stored market data, captured
 from a production build by `npm run screenshots`. No mockups, no typed-in values.*
@@ -479,9 +479,9 @@ The suite is written around the promises the product makes, not around coverage:
 - **global support** — search, currency, exchange clocks and benchmarks across NSE/NASDAQ/NYSE
 - **cross-user isolation** — no user's context can widen to another user's data
 
-Latest verified run: **256 assertions passing**, **48 smoke checks**, **113 browser
+Latest verified run: **258 assertions passing**, **48 smoke checks**, **114 browser
 checks**, a clean production build, and the visual matrix passing across four viewports
-in both themes.
+in all three appearances.
 
 ---
 

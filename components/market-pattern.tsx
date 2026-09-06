@@ -27,7 +27,7 @@ export function MarketPattern({ anomaly, timeZone, monitored }: {
     // Never an error card. Either the security is not monitored, or the model
     // declined for want of history; both are ordinary, and neither is alarming.
     if (!monitored) return null;
-    return <DashboardCard title="Market Pattern" action={<span className="eyebrow">SECONDARY EVIDENCE</span>} className="mt-4">
+    return <DashboardCard title="Market Pattern" action={<span className="eyebrow">SECONDARY EVIDENCE</span>} className="market-pattern mt-4">
       <div className="panel-body"><p className="text-meta text-faint">
         The anomaly model has not evaluated a session for this company yet. It needs a run of observed
         history before it can say whether a day is unusual, and THESIS’s deterministic detection is
@@ -41,7 +41,7 @@ export function MarketPattern({ anomaly, timeZone, monitored }: {
   return <DashboardCard
     title="Market Pattern"
     action={<span className={`status-badge ${unusual ? "amber" : "neutral"}`}>{unusual ? "UNUSUAL PATTERN" : "TYPICAL"}</span>}
-    className="mt-4">
+    className="market-pattern mt-4">
     <div className="panel-body">
       <p className="text-body">
         {unusual
