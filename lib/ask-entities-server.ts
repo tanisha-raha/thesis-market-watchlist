@@ -22,13 +22,33 @@ const CANDIDATE = /^[A-Za-z][A-Za-z.&'-]{1,24}(?: [A-Za-z][A-Za-z.&'-]{1,24}){0,
 const STOP = new Set(["which", "what", "how", "why", "the", "one", "them", "both", "these", "those", "this", "that", "more", "most", "better", "best", "stock", "stocks", "company", "companies", "it", "they"]);
 const MAX_LOOKUPS = 3;
 
+/**
+ * A proper noun inside a sentence: "Tell me about Apple", "What does Reliance
+ * Industries do?". The first word is skipped because every sentence starts
+ * capitalised, and stopwords are dropped so "What" and "Which" never qualify.
+ */
+const PROPER_NOUN = /\b[A-Z][A-Za-z.&'-]{2,}(?:\s+[A-Z][A-Za-z.&'-]{2,}){0,2}\b/g;
+
 /** Company-shaped fragments in a message, in the order they appear. */
 export function companyCandidates(message: string): string[] {
-  return message
-    .replace(/[?!.]+$/g, "")
-    .split(SEPARATORS)
+  const trimmed = message.replace(/[?!.]+$/g, "");
+  const usable = (part: string) => {
+    const words = part.split(" ");
+    if (!CANDIDATE.test(part) || words.some((word) => STOP.has(word.toLowerCase()))) return false;
+    // A multi-word fragment has to look like a name — "Reliance Industries", not
+    // "market volatility" — or a sentence with no separator becomes a lookup.
+    return words.length === 1 || words.every((word) => /^[A-Z]/.test(word));
+  };
+  // Whole fragments first — "Apple and Infosys" is two of them — then proper
+  // nouns found inside a longer sentence.
+  const fragments = trimmed.split(SEPARATORS).map((part) => part.trim()).filter(usable);
+  // A proper noun already inside a fragment is the same mention, not another one.
+  const nouns = (trimmed.slice(trimmed.search(/\s/) + 1).match(PROPER_NOUN) ?? [])
     .map((part) => part.trim())
-    .filter((part) => CANDIDATE.test(part) && part.split(" ").every((word) => !STOP.has(word.toLowerCase())))
+    .filter((part) => usable(part) && !fragments.some((fragment) => fragment.toLowerCase().includes(part.toLowerCase())));
+  const seen = new Set<string>();
+  return [...fragments, ...nouns]
+    .filter((part) => { const key = part.toLowerCase(); return seen.has(key) ? false : (seen.add(key), true); })
     .slice(0, MAX_LOOKUPS);
 }
 
