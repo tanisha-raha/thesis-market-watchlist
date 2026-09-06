@@ -81,7 +81,9 @@ const REPLAY_QUESTION = /\b(happened before|historical|replay this|test .*thesis
 
 /** Companies named in this turn, including any THESIS has never stored. */
 async function companiesIn(message: string, turn: { symbols: string[]; carried: boolean }): Promise<string[]> {
-  if (turn.carried) return turn.symbols;
+  // Carried companies stand; a turn that carried only a concept still gets to
+  // name a company of its own.
+  if (turn.carried && turn.symbols.length) return turn.symbols;
   const named = await resolveNamedCompanies(message);
   return [...named, ...turn.symbols.filter((symbol) => !named.includes(symbol))].slice(0, 4);
 }

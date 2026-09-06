@@ -222,10 +222,16 @@ function previousIntent(history: Turn[]): ResolvedIntent | null {
   return null;
 }
 
-/** A message with no content of its own: it only means something after the last one. */
+/**
+ * A message with no content of its own: it only means something after the last
+ * one. A proper noun anywhere but the first word IS content — "Tell me about
+ * Apple" is four words and a fresh subject, not a continuation.
+ */
+const NAMES_SOMETHING = /\s[A-Z][A-Za-z.&'-]{2,}/;
+
 function isFollowUp(text: string, concepts: string[], named: string[]): boolean {
   if (OWNERSHIP.test(text) || DEFINITION.test(text)) return false;
-  if (named.length || concepts.length) return false;
+  if (named.length || concepts.length || NAMES_SOMETHING.test(text)) return false;
   return REFERENCE.test(text) || text.split(/\s+/).length <= 6;
 }
 
