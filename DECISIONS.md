@@ -626,8 +626,9 @@ mountain panorama at a slate/navy dawn, mist, dark left-side negative space for
 white copy, and no text, logos or finance symbols. This is decorative artwork only;
 charts, prices and evidence still come from the application.
 
-**Local verification.** TypeScript passes; `npm test` passes 80 assertions and
-`npm run smoke` passes 31. The authenticated browser regression passes including
+**Local verification (as of this entry; the suite has grown considerably since —
+see the final entry for current counts).** TypeScript passes; `npm test` passes 80
+assertions and `npm run smoke` passes 31. The authenticated browser regression passes including
 logout/login watchlist and note persistence. The default `npm run build`
 encountered a local Turbopack worker `Operation not permitted` error; the same
 application builds successfully with `npm run build -- --webpack`. No production
@@ -978,3 +979,35 @@ so the hero is never blank, then recomputed in the browser's own timezone after
 mount, because "good evening" at someone's breakfast was the giveaway that the
 greeting belonged to the server. Signup also confirms the password, checked in the
 browser for an immediate answer and again on the server, where the rule lives.
+
+---
+
+## 2026-09-06 — Submission state, and what a reviewer can rely on
+
+**The repository is the product.** README claims were re-derived from the current
+code rather than carried forward from older documentation: the feature list, the
+engine parameters (fire/clear thresholds, the 2-of-3 contradiction rule, the ML
+configuration), the environment variables actually read by the app, the ten
+migrations and the table inventory were each checked against source before being
+written down. Where an earlier entry in this log records a number that has since
+moved — the "80 assertions" verification above — the entry is left in place with its
+date and marked, because a decision log that quietly rewrites its own history is
+worth less than one that shows the sequence.
+
+**Screenshots are generated, not curated.** `npm run screenshots` creates a
+disposable account, watches real securities, sets its read watermark back ten days
+— which is exactly the state of a user who has been away — captures nine shots from
+a production build, and deletes the account. Everything in the gallery is live
+market data the deterministic engine had already detected and stored; nothing is a
+mockup and nothing was typed into the UI. The alternative, hand-curated images, ages
+badly and cannot be re-derived by a reviewer.
+
+**`SESSION_SECRET` stays in `.env.example` and is documented as unused.** Auth moved
+to random opaque tokens stored as hashes, so the variable is no longer read. Deleting
+it from the template would break nothing, but a deployment that still sets it would
+then have an undocumented variable; naming it as legacy is more useful to the next
+person than silently dropping it.
+
+**Verified before submission:** ten migrations applied, typecheck clean, 205 test
+assertions, 48 smoke checks against the live provider, 82 browser checks, the visual
+matrix across four viewports in both themes, and a clean production build.

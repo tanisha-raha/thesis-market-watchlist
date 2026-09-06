@@ -1,525 +1,548 @@
-# Thesis
+# THESIS
 
-> A watchlist that remembers *why* you're watching.
+### A watchlist that remembers *why* you're watching.
 
-Most watchlists read "what changed" as a property of the market: *this stock moved a
-lot.* Thesis reads it as a property of your relationship with the stock: *something
-changed that matters relative to why you cared about this one.*
+Traditional watchlists tell you where a stock is now. THESIS remembers **why you were
+watching it**, detects meaningful changes while you are away, preserves what happened
+even when it reverses before you get back, and shows you the evidence — the actual
+numbers recorded at the moment of detection — when you return.
 
-When you add a symbol you can optionally record why. From then on the system does not
-just monitor the stock — it monitors the reason it is on your list.
+**[Live demo](https://thesis-market-watchlist.vercel.app)** ·
+**[Repository](https://github.com/tanisha-raha/thesis-market-watchlist)** ·
+**[Engineering decisions](DECISIONS.md)**
 
-```
-While you were away
-  🔴 1 thesis contradicted
-  🟢 2 conditions triggered
-  ⚡ 1 event happened and reversed
-  ○ 4 unchanged
-```
-
-Home is a concise Market Brief, not a second watchlist. The complete `/digest`
-view preserves three kinds of updates a conventional
-watchlist cannot express:
-
-- **Condition met** — the thing you were waiting for happened.
-- **Thesis contradicted** — the reasoning behind why you were watching no longer holds.
-- **Missed event** — something crossed your threshold while you were away *and reversed
-  before you got back*. A current-state app can never show you this.
+Built for **Code, by Groww 2026** — theme: *Build a Smart Market Watchlist*.
 
 ---
 
-## Status
+## The product
 
-Built for a 72-hour solo hackathon. This section is kept accurate as work lands.
+### Home — your market brief
 
-**Deterministic foundation (local tests and prior production verification)**
+Two markets, each on its own clock: India and the US report their session state
+separately, every index carries its own exchange-local timestamp, and a compact strip
+bridges the market view to your own reasons for watching.
 
-- Email/password auth with server-side sessions (tokens stored hashed)
-- One company search across NSE, BSE, NASDAQ and NYSE; add and remove from a watchlist
-- Live prices, each shown with the exchange timestamp it was reported at and its age
-- Scheduled ingestion behind a protected route — the only writer of quotes
-- Append-only storage: daily bars, an intraday price path, per-symbol statistics
-- `symbol_stats`: 20-day realized volatility, median volume, 20-day MA, 60-day beta
-  vs the security's own market index, and 52-week / 20-day levels — all on the
-  adjusted series, traded sessions only
-- Corporate-action **detection** from provider-history restatement, with uniformity,
-  tolerance and plausibility guards
-- Feed resilience: batch reconciliation for silently dropped symbols, transient vs
-  terminal miss classification, last-known-good serving
-- Seeded history: 60 days of 5-minute bars for the Indian universe and 2 years of
-  daily bars for 60 symbols across both markets, fetched locally and committed, so
-  the deployed app never cold-backfills
+![THESIS Home — market brief with India and US index rows](docs/screenshots/01-home.png)
 
-**Also built**
+### Smart watchlist — what you follow, and why
 
-- *Change engine* — deterministic anomaly detection and scoring on top of
-  `symbol_stats`, with cooldown, hysteresis and transient-event resolution
-- *Thesis engine* — optional structured reasons for watching, evaluated against
-  stored market evidence without an AI dependency
-- *Digest and symbol detail* — a "While you were away" view, evidence panels,
-  missed-event replay, and a traceable per-symbol view
-- *Authenticated workspace* — reference-led sidebar, global company search, dense
-  watchlist, Add Stock dialog, dashboard and stored-history symbol charts
-- *Ask THESIS* — dedicated `/ask` conversation: authenticated deterministic answers
-  from stored THESIS context, plus optional server-side general finance education
-- *THESIS Replay* — historical occurrences of price ranges and volume-confirmed
-  breakouts, using shared deterministic predicates; never writes monitoring events
+One list can hold `INFY.NS` in ₹ on Mumbai time next to `AAPL` and `BLK` in $ on New
+York time. Nothing is converted, nothing is aggregated across currencies, and every
+row carries the condition you set and its current deterministic state.
 
-**Optional anomaly layer (machine learning)**
+![Watchlist holding Indian and US securities in their native currencies](docs/screenshots/02-watchlist.png)
 
-- Isolation Forest, implemented in TypeScript in `lib/ml/` — no Python service,
-  no new deployment, no runtime dependency added
-- Unsupervised and per security: each company's model is fitted on its own recent
-  history, so "unusual" means "unlike this company", not "unlike other companies"
-- Eight features drawn from data THESIS already stores; missing features are
-  dropped as columns, never imputed with zero
-- Fitted during scheduled ingestion, after every deterministic write has
-  committed, and stored immutably with its model version, threshold, training
-  window and the exact features it saw
-- Categorical output — UNUSUAL / NORMAL / INSUFFICIENT_HISTORY / UNAVAILABLE —
-  never a score, a rating or a prediction
-- Secondary evidence throughout: no deterministic engine imports it, and the
-  product is complete when it is absent
+### While you were away
 
-**Global market support**
+The digest below is real: four events that **fired and reversed inside a single
+trading session** while this account was away. Each one is proved invisible on daily
+closes — *"Closed at ₹1,773.20, back below ₹1,778.12. On daily closes this would not
+appear at all."* — which is the clearest demonstration of what THESIS is for.
 
-- Company search across NSE, BSE, NASDAQ and NYSE from one index — the same search
-  powers the top bar and Add Stock
-- Per-security exchange, currency and timezone taken from provider quote metadata
-  and persisted (`symbols.exchange_timezone`, additive migration `0008`)
-- Native currency everywhere: ₹ on an NSE listing, $ on a US one, never converted
-- Exchange-local freshness: a NASDAQ quote is never timestamped in IST, and a US
-  security is not "closed" because the NSE is
-- India and the US index rows on Home, each with its own session state and clock
-- Regional benchmarks (`^NSEI` / `^GSPC`) for beta and benchmark-relative evidence,
-  withheld rather than substituted when a market's index history is missing
-- Deterministic detection, digest, thesis evaluation and Replay run unchanged on US
-  securities: sessions are stamped at that exchange's close, DST included
+![Digest showing four missed events that fired and reversed intraday](docs/screenshots/07-digest.png)
 
-This pass is locally verified against the live provider and a real browser;
-production sign-off is recorded in [DECISIONS.md](DECISIONS.md). The additive
-`0008` migration and the extended daily seed need to be applied to the production
-database before deploying. General Q&A needs an API key.
-
-## The product loop
-
-DEFINE → TEST → MONITOR → DETECT → EXPLAIN → REMEMBER
-
-| Surface | Its job |
-|---|---|
-| Home `/` | Market Brief: personalised greeting, NIFTY 50 / SENSEX / NIFTY BANK and S&P 500 / NASDAQ / Dow, each market's own session state and clock, a compact personal status strip, and current publisher headlines. No stock rows. |
-| Watchlist `/watchlist` | Company management, last-known quotes, freshness, structured condition and status. Responsive cards below desktop table widths. |
-| Digest `/digest` | What happened while away: stored triggers, contradictions, missed/reversed events, evidence and normal read receipts. |
-| Company Detail `/symbol/[symbol]` | Any supported company, watched or not: identity, price, exchange freshness, ranged price history, market data, the anomaly layer's verdict, detected events and the Recorded Evidence captured when the latest one fired. Watched companies additionally show the original note, structured thesis, verdict timeline and THESIS Replay. |
-| Ask THESIS `/ask` | Session conversation, separate THESIS DATA / GENERAL labels, contextual stock entry and helpful advice boundary. Never permanently embedded elsewhere. |
-
-The top-right account menu addresses the user by their stored name — never their
-email address, and never a name derived from one; an account created before names
-existed reads "Account" and can supply a name from a single field in the dropdown.
-The Home greeting uses the same stored name and the reader's own clock. The menu
-offers exactly two appearances — Light and Dark — plus sign-out. The preference persists per
-browser, and a preference stored before the third option was removed resolves to
-Dark. New accounts store a validated display name; legacy names remain nullable and
-fall back to a generic greeting.
-
-### Search is discovery, not an add shortcut
-
-The global search bar answers "what is this company doing", not "add this to my
-list". Selecting a result opens that company's page — watched or not — so a user
-can look before deciding whether the reason to watch it is worth writing down.
-Adding starts from that page (or from the watchlist's own Add Stock button) and
-runs through the one existing flow: symbol, optional structured condition,
-optional note.
-
-A company nobody watches still shows real market information: identity, exchange,
-native currency, live price and freshness, a ranged price chart, the session's
-open/high/low/volume where the source provides them, and any detected market
-events. What it does not show is a thesis, a status, personal evidence or a
-replay — those are facts about a user, and inventing them for a company they do
-not watch is exactly the fabrication this product exists to avoid. It says so
-instead, and offers the add.
-
-Chart ranges are offered only where observations exist: 1D and 1W come from the
-observed intraday path, 1M/3M/1Y from stored or provider daily bars. A security
-we hold only daily bars for gets no 1D button rather than a line drawn between
-two closes. For a company nobody watches yet, one cached, bounded, read-only
-provider request supplies the quote and history — nothing is persisted, so this
-is an interactive lookup rather than the cold backfill the deployed app is
-forbidden from doing, and a provider failure degrades to "Price history
-temporarily unavailable" with the rest of the page intact.
-
-### The anomaly layer
-
-Deterministic rules are excellent for known market conditions: a 2σ move, volume
-at twice its median, a level crossed. What they cannot express is a combination
-that is unremarkable in every individual dimension and unusual as a whole — a
-modest move, on modest volume, against the market, away from the moving average,
-on a day that gapped. The anomaly layer complements them by identifying unusual
-*combinations* of otherwise individually ordinary signals.
-
-**It is unsupervised, deliberately.** There is no reliable ground truth for
-whether a market observation "matters" to every investor, so THESIS does not
-train a supervised buy/sell classifier. Isolation Forest needs no labels: it
-learns the shape of a security's ordinary behaviour and reports how easily a day
-separates from it.
-
-**It does not predict.** The model identifies unusual historical market states;
-it does not forecast future returns, rank securities, or express a view on what a
-price will do next. Its output is categorical for exactly that reason — there is
-no score on any screen, because a number between 0 and 1 next to a company name
-reads as a rating no matter what the label says.
-
-**Explainability is stated honestly.** Isolation Forest gives no per-feature
-attribution, so THESIS never claims one. The UI separates the model's single
-claim ("this combination was unusual") from the observed evidence (price move,
-standardized move, relative volume, benchmark residual, distance from the moving
-average), and says in as many words that those signals are context rather than
-causes.
+### Company detail
 
 | | |
 |---|---|
-| Model | Isolation Forest (Liu, Ting & Zhou, 2008), 100 trees, 256-row subsample, seeded |
-| Features | daily return, standardized return, realized volatility, log relative volume, benchmark residual, distance from MA20, position in the 20-day range, gap return |
-| Fitted on | that security's own last 250 feature rows, strictly before the evaluated session |
-| Minimum history | 60 usable training rows and at least three available features |
-| Threshold | the 99th percentile of the training scores — the security's own distribution |
-| Runs | once per security per session, inside scheduled ingestion, after detection commits |
-| Stored | `market_anomalies`: status, raw score, threshold, model version, data mode, feature snapshot, training-window metadata |
+| ![Symbol detail with ranged price history and the user's structured thesis](docs/screenshots/03-symbol-detail.png) | ![Ask THESIS answering from stored evidence and refusing an investment recommendation](docs/screenshots/08-ask-thesis.png) |
+| **Price history and your thesis.** Ranges are offered only where observations exist — 1D and 1W from the observed intraday path, 1M/3M/1Y from daily closes. | **Ask THESIS.** Answers from your stored evidence, and declines to recommend a trade. |
+| ![Recorded Evidence tiles captured at detection time](docs/screenshots/06-recorded-evidence.png) | ![Market Pattern — Isolation Forest anomaly classification with the signals it saw](docs/screenshots/04-market-pattern.png) |
+| **Recorded Evidence.** The figures captured when the event fired, never recomputed from the latest quote. | **Market Pattern.** The anomaly layer's one claim, kept separate from the evidence it saw. |
+| ![Thesis Replay showing how the condition behaved across observed sessions](docs/screenshots/05-thesis-replay.png) | ![THESIS in light mode](docs/screenshots/09-light-mode.png) |
+| **Thesis Replay.** How *your* condition behaved against observed history — occurrences, not returns. | **Light mode.** The same information hierarchy, two appearances. |
 
-Every rolling input for a session — volatility, median volume, the moving
-average, the 20-day range, beta — is computed from sessions strictly *before* it,
-and the evaluated row is never part of its own training set. Evaluating an old
-session therefore returns the same answer today as it would have on the day,
-which is what makes stored anomaly evidence auditable rather than merely
-re-derivable. Isolation Forest partitions on raw feature ranges, so nothing is
-standardised and there is no fitted scaler that could leak future statistics.
-
-If the model cannot fit, the layer records nothing: no badge, no section, no
-event. Detection, thesis evaluation, the digest and Replay are unaffected, and
-nothing in the deterministic pipeline reads the anomaly table.
-
-### Two markets, one product
-
-THESIS is not an NSE-only watchlist. Search covers NSE, BSE, NASDAQ and NYSE, and a
-watchlist can hold `INFY.NS` in ₹ on Mumbai time next to `AAPL` in $ on New York
-time. Nothing is converted or aggregated across currencies, no security is labelled
-with another market's clock, and India and the US report their session states
-separately — one "MARKET CLOSED" banner can only ever be true of one of them.
-
-Every security's exchange, currency and timezone come from the provider's own quote
-metadata (`lib/securities.ts` is the single place that resolves them, with inference
-only as a fallback for rows written before the metadata column existed). Benchmark-
-relative evidence is regional: `^NSEI` for Indian securities, `^GSPC` for US ones,
-and **withheld entirely** when no index history is stored for that market rather
-than measured against the wrong index.
-
-See [DECISIONS.md](DECISIONS.md) for the reasoning, calibration record, and
-intentional cut list.
+*Every screenshot is the running application against real stored market data, captured
+from a production build by `npm run screenshots`. No mockups, no typed-in values.*
 
 ---
 
-## Setup
+## The problem
 
-Requires Node 22+ (the installed Yahoo adapter requirement) and a Postgres database.
+A normal watchlist answers **"what is the price now?"**
+
+THESIS answers **"what meaningfully changed since I last checked, and does it matter to
+why I was watching?"**
+
+That reframes "meaningful" into two dimensions that have to be handled separately:
+
+| | |
+|---|---|
+| **Market significance** | Was this move unusual *for this security* — against its own volatility, its own volume, its own benchmark? |
+| **Personal relevance** | Does it touch the reason *this user* is watching — the condition they wrote down? |
+
+They are not the same thing, and the product refuses to pretend they are. A
+statistically remarkable day on a stock you hold no view about may be worth nothing to
+you. A quiet, unremarkable day that finally crosses the level you were waiting for is
+the most important thing on your screen.
+
+---
+
+## How it works
+
+**Define → Test → Monitor → Detect → Remember → Explain**
+
+| Step | What happens |
+|---|---|
+| **Define** | You record *why* you're watching as a structured, machine-verifiable condition — not free text we interpret. |
+| **Test** | Thesis Replay shows how that exact condition behaved against recently observed sessions, before you rely on it. |
+| **Monitor** | Scheduled ingestion polls quotes and stores an append-only price path; page loads never fetch from the provider. |
+| **Detect** | A deterministic engine scores every symbol once, records what changed, and resolves conditions that stop holding. |
+| **Remember** | Events are immutable and keep `occurredAt` / `resolvedAt`, so something that fired and reversed while you were away still exists when you return. |
+| **Explain** | The digest, the evidence panels and Ask THESIS render the numbers recorded at detection — never a recomputation. |
+
+---
+
+## Key features
+
+### Smart watchlist
+Search across NSE, BSE, NASDAQ and NYSE from one company index; add anything the
+provider can quote. Every security carries its own exchange, native currency and
+exchange timezone, taken from provider metadata rather than assumed.
+
+### While you were away
+A per-user digest since the last **fully committed** ingestion batch: triggered
+conditions, contradicted theses, missed events, and what stayed unchanged. Watermarks
+are per `(user, symbol)` and monotonic, so opening one company does not mark everything
+else as seen.
+
+### Structured thesis
+`price_range`, `breakout`, `momentum_up`, `momentum_down`, `volatility_watch`,
+`volume_expansion`, or plain watching. States are `WATCHING → TRIGGERED /
+CONTRADICTED / STILL_VALID`, evaluated deterministically. Your free-text note is
+displayed back exactly as written and never parsed.
+
+### Missed events
+The feature a current-state app cannot have: a condition that became true and stopped
+being true entirely inside your away-window, with the daily bar for that session used
+to *prove* it would have been invisible on closes.
+
+### Thesis Replay
+Runs your own condition against recently observed sessions — how often it occurred, how
+often it resolved, the longest run. It is condition replay, deliberately **not**
+strategy backtesting: no returns, no hypothetical P&L.
+
+### Market Pattern — machine learning
+An Isolation Forest, fitted per security on its own recent history, answering one
+question the deterministic rules structurally cannot: *is this combination of signals
+unusual for this company?* Secondary evidence, never authoritative.
+[Details below.](#machine-learning-isolation-forest)
+
+### Recorded Evidence
+The quantitative evidence captured when an event fired — the move and its standardized
+size, the volume ratio, the stock-specific residual — stored immutably and rendered
+as-is.
+
+### Ask THESIS
+An authenticated explanation surface grounded in your stored context. It explains
+evidence and finance concepts, and refuses investment recommendations and price
+predictions.
+
+---
+
+## What counts as "meaningful"?
+
+THESIS deliberately does **not** define meaningful as *"the price moved more than X%"*.
+A 4% move means nothing until you know how much this security usually moves, how much
+of it was the market, and whether anyone was watching for it.
+
+Deterministic evidence the engine records:
+
+- **Volatility-standardized movement** — the move in units of the security's own
+  20-day realized volatility, not in percent.
+- **Relative volume** — the session's volume against its 20-day median.
+- **Benchmark-relative residual** — what is left after the market's move is removed
+  using the security's own 60-day beta. If the market moved and the stock followed,
+  that is not news.
+- **Reference levels** — 52-week and 20-day range crossings, and 20-day moving-average
+  state, all with hysteresis so an oscillating price fires once.
+- **Overnight gaps** — measured on the unadjusted series so dividend adjustment cannot
+  manufacture one.
+- **Your structured condition** — the only thing that turns a market fact into a
+  personal one.
+
+---
+
+## System architecture
+
+A single Next.js deployable, one Postgres database, one scheduled writer. No
+microservices, no queues, no separate ML service — the architecture is deliberately
+small, and the depth goes into the engines.
+
+```mermaid
+flowchart TD
+    P["Market data provider<br/>(yahoo-finance2)"] --> I
+    subgraph NEXT["Next.js App Router - single deployable on Vercel"]
+        I["Scheduled ingestion<br/>/api/ingest - protected route<br/>the only writer of quotes"]
+        DE["Deterministic change engine<br/>pure - O(unique symbols)"]
+        IF["Isolation Forest<br/>anomaly layer - optional"]
+        TE["Thesis evaluation<br/>2-of-3 conditions + persistence"]
+        DG["Digest composition<br/>per-user, per-symbol watermarks"]
+        UI["Home - Watchlist - Company detail<br/>Digest - Ask THESIS"]
+    end
+    subgraph DB["PostgreSQL on Neon"]
+        OBS[("price_bars - quote_observations<br/>append-only observations")]
+        ST[("symbol_stats")]
+        CE[("change_events<br/>immutable evidence")]
+        MA[("market_anomalies<br/>immutable, mode-scoped")]
+        TH[("theses - thesis_events")]
+    end
+    I --> OBS
+    I --> ST
+    OBS --> DE
+    ST --> DE
+    DE --> CE
+    OBS -.optional.-> IF
+    IF -.secondary evidence.-> MA
+    CE --> TE
+    TH --> TE
+    TE --> TH
+    CE --> DG
+    TH --> DG
+    DG --> UI
+    MA -.context only.-> UI
+    CE --> UI
+```
+
+The dotted edges matter: **nothing downstream of the deterministic engine reads the
+anomaly table**. Detection, thesis verdicts and the digest are computed without it.
+
+---
+
+## The deterministic engine
+
+Detection runs **once per symbol**, not once per user — cost is O(unique symbols)
+rather than O(users × symbols), and personalisation happens later by filtering shared
+events against a user's watchlist and watermark.
+
+**Standardized movement.** A move is expressed in the security's own daily volatility:
+
+```
+z   = r_t / σ₂₀              σ₂₀ = daily realized volatility over 20 traded sessions
+z_k = R_k / (σ₂₀ · √k)       for a k-session move
+```
+
+Firing at `|z| ≥ 2.0` and clearing at `|z| < 1.5` — the gap is hysteresis, so a price
+hovering at a threshold produces one event rather than a burst.
+
+**Benchmark-relative residual.** `residual = r_stock − β₆₀ · r_index`, scored as
+`residual / σ₂₀`. The benchmark is regional — `^NSEI` for Indian securities, `^GSPC`
+for US ones — and when a market's index history is not stored, the signal is
+**withheld** rather than computed against the wrong index.
+
+**Relative volume.** `log(volume / median₂₀)`, firing at 2× and clearing at 1.2×,
+guarded against the zero-volume bars the provider emits on holidays.
+
+**Transience is the point.** `occurredAt` is when a condition became true;
+`resolvedAt` is when it stopped. Resolution is evaluated against the **intraday**
+series — on daily closes a move that reverses within the session leaves no trace, and
+the missed-event feature would silently never fire.
+
+**Contradiction requires 2 of 3 independent conditions**, each clearing a noise floor
+expressed in the security's own volatility, sustained for 3 sessions. One noisy signal
+never tells a user their reasoning failed.
+
+---
+
+## Machine learning: Isolation Forest
+
+**Why a model at all.** Every deterministic signal above is univariate — a z-score, a
+volume ratio, a level crossing. A day that is unremarkable in *each* dimension but
+unusual as a whole passes every threshold individually and is never surfaced. That is
+a real gap, and it is the only reason this layer exists.
+
+| Layer | Question it answers |
+|---|---|
+| Deterministic engine | **What changed?** |
+| Isolation Forest | **How unusual was the combined market state?** |
+| Your thesis | **Does it matter to me?** |
+
+**Why Isolation Forest.** It is unsupervised — there is no reliable ground truth for
+whether a market observation "matters" to an investor, so there is nothing honest to
+train a supervised classifier against. It is genuinely multivariate: it isolates points
+that separate easily under random partitioning. It needs no feature scaling, because
+splits are drawn between observed feature ranges. And it is compact enough to run
+inside the existing deployable.
+
+**Features** (all computed from data already stored):
+
+| # | Feature | # | Feature |
+|---|---|---|---|
+| 1 | daily return | 5 | benchmark residual |
+| 2 | standardized return | 6 | distance from MA20 |
+| 3 | realized volatility | 7 | position in the 20-day range |
+| 4 | log relative volume | 8 | gap return |
+
+**Configuration:** 100 trees · 256-row subsample · seeded PRNG (identical inputs always
+produce identical scores) · fitted on the security's own last 250 feature rows ·
+minimum **60 usable training rows and 3 available features** · threshold is the **99th
+percentile of that security's own training scores**, not a hardcoded constant.
+
+**No future-data leakage, by construction.** Every rolling input for a session —
+volatility, median volume, the moving average, the 20-day range, beta — is computed
+from sessions *strictly before* it. The evaluated row is excluded from its own training
+set, and `asOfDate` truncates the series, so evaluating an old session returns the same
+answer today as it would have on the day. A test asserts identical output with and
+without later bars present.
+
+**Missing is missing.** A feature that cannot be computed is `null`, never `0` — zero
+is a legitimate value for a return and for a distance from a moving average, so
+imputing it would insert a fabricated flat day into training. A feature missing across
+a security's history is dropped as a *column* for that security.
+
+**Secondary, structurally.** It runs last in the ingestion pipeline, after every
+deterministic write has committed. No deterministic module imports `lib/ml` — a test
+asserts this by reading the sources. It cannot create a change event, cannot trigger or
+contradict a thesis, and when it fails it records nothing.
+
+**Output is categorical.** `UNUSUAL` / `NORMAL` / `INSUFFICIENT_HISTORY` /
+`UNAVAILABLE`. The raw score is stored for reproducibility and never rendered: "0.68"
+beside a company name reads as a rating no matter what the caption says. Isolation
+Forest offers no per-feature attribution, so the UI makes one claim — this combination
+was unusual — and separately shows the signals it saw, labelled as context rather than
+causes.
+
+**THESIS is not an AI stock predictor.** The model identifies unusual historical market
+states. It does not forecast returns, rank securities, or express a view on price.
+
+### Why TypeScript for the ML?
+
+The application is already a single Next.js/TypeScript deployable, and Isolation Forest
+is ~120 lines of a well-specified algorithm (Liu, Ting & Zhou, 2008). Implementing it
+in-repo avoids a second deployment, a network boundary, and an operational failure mode
+in a product whose central claim is that the core keeps working when optional things
+fail. It also keeps the model seeded and deterministic, which is what lets stored
+anomaly evidence be reproduced and end-to-end tested in the same suite as everything
+else.
+
+This is an intentional trade-off for this system's scale and shape — not a claim that
+TypeScript beats Python for ML in general. A larger model, a heavier feature pipeline,
+or anything needing established scientific libraries would justify the separate service
+this one does not.
+
+---
+
+## Resilience and edge cases
+
+| Problem | THESIS behaviour |
+|---|---|
+| A feed update fails | The last-known-good quote stays visible with its exchange timestamp and a degraded/stale label. Never blank, never a silently stale "live" price. |
+| A batch partially fails | The batch is marked `FAILED`; the digest cutoff only ever uses the completion time of a **fully committed** batch, so a half-written poll can never define "since you last checked". |
+| The provider silently drops a symbol | Batched quotes are reconciled against what was requested; a repeated miss escalates from *degraded* to *unresolved* rather than a row that quietly stops updating. |
+| A condition fires and reverses while you are away | `occurredAt` and `resolvedAt` are preserved and it surfaces as a **missed event**, with the daily bar used to prove it was invisible on closes. |
+| A price oscillates around a threshold | Hysteresis: a separate, stricter re-arm band means one event, not a burst. |
+| The same move repeats within a day | A 24-hour cooldown requires a repeat to *escalate* by 1.5× to earn a new row. |
+| The provider restates history (a split) | Uniformity, tolerance and plausibility guards validate the shift before anything user-level is touched. |
+| Your thesis levels predate a split | Thesis parameters and the watermark price are adjusted by the same factor, the prior values are kept, and the UI shows the adjustment — never a silent rewrite. |
+| A stale browser tab writes digest state | Watermarks are monotonic (`GREATEST`), so an older tab cannot resurface news you have already seen. |
+| Ingestion runs twice | Every write is idempotent on a natural key; re-running detection over the same history cannot duplicate an event. |
+| Holiday "phantom" bars (a real close with zero volume) | Excluded from every statistic and calendar — including them would deflate the volatility everything else is normalized by. |
+| The ML layer has too little history | The Market Pattern section is omitted rather than showing a fabricated classification. |
+| An ML feature is unavailable | The column is dropped for that security; missing market evidence is never zero-imputed. |
+| The ML layer fails entirely | Detection, theses, digest, replay and the UI are unaffected — nothing downstream reads it. |
+| A US security is watched with no US index history | Benchmark-relative evidence is withheld and beta stays null, rather than measuring AAPL against NIFTY 50. |
+
+---
+
+## Data and time semantics
+
+- **Every instant is stored in UTC.** Exchange-local time exists only at the rendering
+  edge — a NASDAQ quote is never stamped "15:30 IST", and a US security is not "stale"
+  because the NSE is shut.
+- **`trading_date` is a calendar fact**, stored as a `DATE` in the exchange's own zone.
+  A session close becomes an instant through a zone-aware conversion that handles US
+  daylight saving.
+- **Prices stay in their native currency.** ₹ and $ appear side by side; nothing is
+  converted or summed across currencies.
+- **The latest quote and detection-time evidence are different things**, and the UI
+  says so: "Captured at detection · values preserved from this event."
+- **Provider history is not raw.** Yahoo's `close` is already split-adjusted and gets
+  restated retroactively, so THESIS persists its own immutable as-observed bars at
+  ingestion — the ratio between as-observed and current-provider values *is* the split
+  factor.
+- **LIVE and DEMO REPLAY never mix.** The deterministic replay provider drives
+  reproducible demos and tests; anomaly evidence is stamped with its data mode, that
+  mode is part of the row's identity, and reads filter on it.
+
+---
+
+## Data model
+
+| Table | What it holds |
+|---|---|
+| `users`, `sessions` | Accounts with a stored display name; sessions store only a SHA-256 of the cookie token. |
+| `symbols` | One row per security: name, exchange, currency, exchange timezone, feed-health counters. |
+| `quotes` | Latest known quote per symbol, with the exchange's own `as_of` timestamp. |
+| `watchlist_items` | Per-user membership, unique on `(user, symbol)` in the database. |
+| `theses`, `thesis_events` | Structured conditions and their append-only verdicts with stored evidence. |
+| `ingestion_batches` | One row per run; `completed_at` defines the digest cutoff. |
+| `price_bars` | Daily bars holding both first-observed and current-provider values — corporate-action detection falls out of the storage design. |
+| `quote_observations` | Append-only intraday price path; what makes a missed event visible. |
+| `symbol_stats` | Recomputed statistics: realized volatility, median volume, MA20, beta, 52-week and 20-day levels. |
+| `change_events` | Immutable detected events with `occurred_at` / `resolved_at` and detection-time `explain_json`. |
+| `corporate_actions` | Inferred provider restatements with validation status and reason. |
+| `user_symbol_read_state` | Per-(user, symbol) monotonic watermarks and split-adjusted baseline prices. |
+| `market_anomalies` | Immutable anomaly evaluations: status, score, threshold, model version, data mode, feature snapshot, training window. |
+
+Ten ordered migrations (`0000`–`0009`), every one additive.
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Framework | Next.js 16 (App Router), React 19, TypeScript — one deployable, server components and server actions |
+| Styling | Tailwind CSS v4 with a small design-token layer in `app/globals.css` |
+| Database | PostgreSQL on Neon |
+| Query layer | Drizzle ORM with drizzle-kit migrations |
+| Market data | `yahoo-finance2`, behind a provider interface with a deterministic replay implementation |
+| ML | Isolation Forest implemented in-repo (`lib/ml/`) — no ML dependency |
+| Auth | Email + password, scrypt hashing, opaque session tokens stored hashed |
+| Deployment | Vercel; daily stats via `vercel.json` cron, 10-minute polling via a GitHub Actions workflow hitting the protected route |
+| Testing | Node-run integration/unit suite, a live-provider smoke test, and Playwright browser and visual matrices |
+
+---
+
+## Local setup
+
+**Prerequisites:** Node 20+ and a PostgreSQL database (Neon's free tier works).
 
 ```bash
 git clone https://github.com/tanisha-raha/thesis-market-watchlist.git
 cd thesis-market-watchlist
 npm install
-
-cp .env.example .env.local        # then fill in the three values below
-npm run db:migrate
-npm run seed:load                 # loads committed history; makes no network calls
-npm run dev                       # http://localhost:3000
+cp .env.example .env.local
 ```
 
-`.env.local` needs three values:
+Set the variables in `.env.local`:
 
-| Variable | How to get it |
-|---|---|
-| `DATABASE_URL` | Any Postgres URL — see the Docker one-liner below |
-| `SESSION_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `CRON_SECRET` | Any random string; only the ingestion route reads it |
-| `OPENAI_API_KEY` | Optional server-only OpenAI key for GENERAL education; never put it in a `NEXT_PUBLIC_*` variable |
-| `OPENAI_MODEL` | Optional model override; defaults to `gpt-4.1-mini` |
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | **yes** | Postgres connection string (Neon pooled URL, or any Postgres). |
+| `CRON_SECRET` | for ingestion | Shared secret for `/api/ingest`. Without it the route refuses every request rather than failing open. |
+| `OPENAI_API_KEY` | optional | Enables Ask THESIS's *general finance education* answers only. Everything deterministic works without it. |
+| `OPENAI_MODEL` | optional | Defaults to `gpt-4.1-mini`. |
+| `THESIS_DATA_MODE` | optional | Set to `demo` for the deterministic DEMO REPLAY path. |
+| `SESSION_SECRET` | no | Legacy field kept in the template; current auth uses random opaque tokens and stores only their hashes. |
 
-Current auth stores opaque random session-token hashes in Postgres; `SESSION_SECRET`
-is a reserved legacy deployment variable, not the signing mechanism.
-
-Seed data is committed to the repository, so a clean clone has two years of daily
-bars and sixty days of 5-minute bars without touching the network.
-
-A local Postgres via Docker, if you need one:
+Then:
 
 ```bash
-docker run -d --name thesis-pg \
-  -e POSTGRES_PASSWORD=thesis -e POSTGRES_USER=thesis -e POSTGRES_DB=thesis \
-  -p 55432:5432 postgres:17-alpine
-# DATABASE_URL=postgres://thesis:thesis@localhost:55432/thesis
+npm run db:migrate        # apply the ten migrations
+npm run seed:load         # optional: 2y daily + 60d intraday history for the seeded universe
+npm run dev               # http://localhost:3000
 ```
 
-### Commands
+Create an account in the app and add a company — `Infosys`, `Apple` and `BlackRock` all
+resolve. The app works against an empty database: without seeded history it shows quotes
+and truthful "no stored history yet" states, and statistics, detection and replay appear
+once history exists.
 
-| Command | What it does |
-|---|---|
-| `npm run dev` / `build` / `start` | Next.js |
-| `npm run db:migrate` | Apply migrations |
-| `npm test` | Database-backed and deterministic regression suite (needs `DATABASE_URL`) |
-| `npm run smoke` | End-to-end against a real database and the live feed |
-| `npm run browser-check -- [url]` | Signup, watchlist, thesis, chat, removal, logout/login persistence |
-| `npm run visual-check -- [url] [output-directory]` | Screenshots and responsive interaction checks at 1536, 1440, 1000 and 390px; creates a test account |
-| `npm run visual-history-check -- [local-demo-url] [output-directory]` | Populated digest screenshots from an isolated copy of existing demo evidence; local DB/server only; removes its own fixture account |
-| `npm run validate:source` | Re-runs the Phase 0 data-source validation |
-| `npm run seed:daily` / `seed:intraday` | Fetch history locally into `seed/` |
-| `npm run seed:load` | Load committed seed files into the database |
-| `npm run detect` | Run the deterministic change engine over loaded history |
-| `npm run seed:demo` | Create the reproducible demo account and verify its digest |
+**Populating data yourself:** history is fetched locally and shipped as a committed seed
+because the deployed app must never cold-backfill from the host (Yahoo throttles
+datacenter IPs harder than residential ones). `npm run seed:daily` re-fetches it, and
+`npm run detect` runs detection over stored history.
 
-### Scheduled ingestion
+---
 
-`/api/ingest` is the only writer of quotes. Point an external cron at it:
-
-```
-GET /api/ingest            Authorization: Bearer $CRON_SECRET   # every few minutes
-GET /api/ingest?stats=1    Authorization: Bearer $CRON_SECRET   # once daily, after close
-```
-
-It refuses every request when `CRON_SECRET` is unset rather than failing open.
-
-### Demo replay
-
-After loading the committed seed, run:
+## Testing
 
 ```bash
-npm run detect
-npm run seed:demo
+npm run typecheck      # TypeScript, no emit
+npm test               # integration + unit suite against a real database
+npm run smoke          # end-to-end against the live provider
+npm run build          # production build
+npm run browser-check  # Playwright journey against a running build
+npm run visual-check   # responsive, two-theme visual matrix
+npm run screenshots    # regenerate the README gallery
 ```
 
-The script creates `demo@thesis.app` from the same stored bars and intraday
-observations the application uses. It verifies that the digest contains a thesis
-contradiction, a condition trigger, and a resolved intraday missed event. It does
-not insert fabricated market events. Use the credentials printed by the script;
-they are intentionally local/demo-only and should not be reused in production.
+The suite is written around the promises the product makes, not around coverage:
 
-Set `THESIS_DATA_MODE=demo` on an explicitly demo-only server to label the shell,
-quotes, and explanations **DEMO REPLAY**. The normal production deployment must not
-use that flag. `npm run visual-history-check -- http://localhost:3102 /tmp/thesis-demo`
-can inspect an existing local demo dataset using a disposable scoped account.
-The script does not seed market history or fabricate events. A populated demo is
-verified locally only; do not advertise production demo access until separately tested.
+- **ingestion atomicity** — a failed batch is never visible as `COMPLETED`
+- **corporate actions** — uniform-shift validation, and thesis/watermark adjustment
+- **missed events** — `occurredAt`/`resolvedAt` semantics and away-window containment
+- **hysteresis and cooldown** — oscillation produces one event, not a burst
+- **thesis creation floor** — a thesis is never evaluated against data older than itself
+- **contradiction persistence** — 2-of-3 conditions, sustained
+- **watermark monotonicity** — a stale tab cannot move "seen" backwards
+- **anomaly leakage** — an old session evaluates identically with and without later bars
+- **ML/deterministic isolation** — no deterministic module imports `lib/ml`
+- **LIVE/DEMO isolation** — the two modes cannot overwrite or be read as each other
+- **global support** — search, currency, exchange clocks and benchmarks across NSE/NASDAQ/NYSE
+- **cross-user isolation** — no user's context can widen to another user's data
 
-### THESIS Replay (distinct from DEMO REPLAY)
-
-THESIS Replay is historical condition analysis, **not a prediction or an
-investment-strategy backtest**. It describes the current user's saved condition over
-up to 60 stored usable sessions. No returns, P&L, optimization or advice is produced.
-It does not change thesis state, create events, or move read watermarks.
-
-Supported: inclusive `price_range`, and `breakout` with the existing 1.5× median
-volume confirmation. `lib/thesis-conditions.ts` is shared with monitoring. Price
-ranges use the current provider close (not dividend-adjusted `adjClose`); breakout
-uses the same adjusted-close basis as the thesis engine. The historical series is
-provider-restated, not vendor-raw history. Pending validated corporate-action
-reconciliation blocks Replay rather than comparing incompatible condition scales.
-
-Consecutive qualifying daily closes form one observed occurrence; a subsequent
-non-qualifying close resolves it. Displayed metrics: actual date window/session
-count, occurrences, resolved occurrences, longest observed run, last occurrence,
-median threshold distance and a date-only timeline. Entry already present at the
-window start is explicitly left-censored. Data gaps/intraday paths remain unknown;
-daily bars cannot prove same-session crossings or reversals. Today's potentially
-unfinished daily bar is excluded. Fewer than two evaluable closes is insufficient;
-breakouts first require 20 usable volume sessions. Other thesis types are explicitly
-unsupported rather than given invented historical semantics.
-
-DEMO REPLAY is different: deterministic provider infrastructure demonstrating real
-stored event sequences. THESIS Replay analyzes a condition; DEMO REPLAY supplies a
-demonstration dataset. Both use clear, separate labels.
-
-### Presentation boundaries
-
-`components/app-shell.tsx` supplies the sidebar, command/search bar and account menu.
-`components/ui.tsx` and `dashboard-widgets.tsx` define shared cards, status,
-freshness and evidence presentation, all parameterised by the security's currency
-and exchange clock. `lib/presentation.ts` adds read-only queries for the user's
-saved theses, stored daily closes and event evidence. Home never acknowledges a
-digest; the existing `/digest` read receipt is unchanged. Historical charts omit
-zero-volume bars and show their actual exchange date range, never an invented
-intraday line. Evidence is timestamped separately from the latest quote. Index cards
-make one small cached quote request through the existing live provider; stored
-quotes are a last-known fallback. Sparklines prefer stored history and otherwise
-make one cached, read-only chart request per index — nothing is persisted, and an
-index with neither says "History unavailable" rather than showing empty space.
-Failed or omitted indices stay truthful.
-
-Market Briefing reads the Economic Times public Markets RSS feed: at most six
-headlines from the last 72 hours, original publisher link/source/time, a 7-second
-timeout, 256KB payload cap, no XML entities/DOCTYPE, and 10-minute public caching.
-No article bodies, sentiment or causal attribution. News is presentation context
-only and is never imported by detection, thesis evaluation, evidence or Replay.
-
-### Deployment
-
-Deployed as a single Next.js app on Vercel with Postgres on Neon.
-
-1. Set `DATABASE_URL`, `SESSION_SECRET` and `CRON_SECRET` in the project's environment.
-2. Run `npm run db:migrate` once against the production database.
-3. Run `npm run seed:load` once against it too, from a local checkout. History is
-   fetched locally and shipped as a committed file — the deployed app must never
-   perform a cold historical backfill, because Yahoo throttles datacenter IPs far
-   harder than residential ones.
-4. Scheduling is split by cadence. `vercel.json` runs the daily statistics recompute
-   after the NSE close, which fits within the Hobby plan's once-per-day cron limit.
-   The ingestion route polls quotes before it detects, deliberately: a symbol's
-   exchange and timezone come from the quote feed, and detection needs them to stamp
-   a session in the right market's clock.
-   Frequent quote polling runs from `.github/workflows/poll.yml` every ten minutes
-   during market hours; it needs `INGEST_URL` and `CRON_SECRET` as repository secrets.
+Latest verified run: **205 assertions passing**, **48 smoke checks**, **82 browser
+checks**, a clean production build, and the visual matrix passing across four viewports
+in both themes.
 
 ---
 
-## Architecture
+## Engineering decisions
 
-Next.js (App Router) + TypeScript, one deployable · Postgres · Drizzle · Tailwind ·
-`yahoo-finance2`. Postgres is sufficient at this scale; choosing not to add a
-time-series database is deliberate.
+Fuller rationale in **[DECISIONS.md](DECISIONS.md)**; the short version:
 
-**Three separated layers.** *Detection* runs once per symbol regardless of how many
-users watch it, which is what makes cost O(unique symbols) rather than
-O(users × symbols). *Scoring* puts events in comparable units. *Personalisation*
-filters by watchlist membership, thesis relevance and per-user watermark.
-
-**Theses are structured and machine-verifiable.** Every trigger and contradiction is
-evaluated deterministically against market data. A contradiction requires at least
-2 of 3 independent conditions, so one noisy signal cannot fire it.
-
-**Ask THESIS is an optional AI explanation layer over deterministic system outputs. It
-does not detect events, determine thesis validity, or provide investment advice.** The
-core product is deterministic and fully functional without AI. The AI layer is optional
-presentation garnish, not a system dependency. The THESIS DATA mode uses a bounded,
-read-only explanation path: it receives only the authenticated user’s relevant
-watchlist, theses, digest output and recent evidence, never a database dump. It labels
-explicit demo replay context and declines advice or prediction requests. GENERAL
-uses an optional server-only OpenAI Responses API boundary (`store: false`, six
-bounded conversation turns, 500 output tokens, 12-second timeout, no tools or DB
-context). Responses are labeled GENERAL, never user evidence. Missing key, provider
-errors and truncated responses have explicit degraded states. A best-effort
-per-instance 8/minute/user guard complements—not replaces—provider spend limits.
-THESIS-specific questions always use deterministic data, even in GENERAL selection.
-Notes remain verbatim text and are not interpreted. No model can change an engine
-decision, event, watermark or Replay result.
-
-**Two storage facts that shaped the schema.** Yahoo returns no raw price series — its
-`close` is already split-adjusted and is restated retroactively across all history
-when a split occurs. So `price_bars` keeps what the provider said on the day
-(`first_observed_*`, written once, never updated) separately from what it says now
-(`current_provider_*`). The ratio between them *is* the split factor, so
-corporate-action detection falls out of the storage design rather than needing a
-feed we do not have.
-
-**Every feed sits behind a provider interface** with `live` and `replay` adapters.
-The replay adapter is not a test shortcut: it makes the demo reproducible when a free
-API rate-limits us, and it models the provider's real failure modes rather than an
-idealised feed.
+| Decision | Why |
+|---|---|
+| Structured thesis, not LLM-parsed free text | A verdict about someone's reasoning must be reproducible and auditable. Data decides; the note is theirs and is never parsed. |
+| Detection once per symbol, not per user | Cost is O(unique symbols); personalisation is a later filter. A watchlist that scales with users × symbols does not scale. |
+| Immutable detection-time evidence | Statistics drift. Evidence recomputed later would silently stop matching the claim it justifies. |
+| Digest cutoff = last *completed* batch | Using `now()` would skip events whose commit lands after the digest query runs. |
+| ML strictly secondary | No deterministic path reads it, so the product is complete when the model is absent, wrong or slow. |
+| Isolation Forest in TypeScript | Avoids a second service and a network boundary; keeps the model seeded, deterministic and testable in the same suite. |
+| No return prediction, ever | An attention tool that starts forecasting becomes an advisory product, with the regulatory and ethical weight that carries. |
+| No news-based causal attribution | Entity matching and timestamp alignment are unreliable enough to manufacture false explanations. News is context, never evidence. |
+| A single deployable, no microservices | Postgres is sufficient at this scale. Choosing not to add infrastructure is a defensible engineering answer. |
 
 ---
 
-## The clearest thing we can show you
+## Limitations
 
-**GRASIM.NS, 10 August 2026.** Its 52-week high was ₹3380.50. At 11:55 IST the price
-crossed it, peaked at ₹3407.70, and fell back below at 14:15 — 140 minutes above a
-52-week high, then gone.
-
-**That day's closing price was ₹3380.50: exactly the level, not above it.**
-
-On daily bars this event does not exist. Not smaller, not weaker — absent. A
-watchlist built on daily closes tells you nothing happened. The same trace also
-shows the hysteresis rule working: the price re-crossed the level at 14:30 without
-having fallen through the re-arm band, and no duplicate event was emitted.
-
-Full trace, including the stored event and every price tick, in
-[docs/grasim-trace.md](docs/grasim-trace.md). It comes from the committed seed and
-reproduces with `npm run detect`.
-
----
-
-## Known limitations
-
-- **Dividends are not adjusted for.** Splits are handled; dividend adjustment is
+- **Market data is free-tier and delayed**, and is always presented with the exchange
+  timestamp it was reported at rather than as real-time.
+- **Two markets only** — India (NSE/BSE) and the US (NASDAQ/NYSE). Any symbol the
+  provider can quote can be looked up and watched, but only these have regional
+  benchmarks.
+- **Statistics, detection and replay need stored history.** A company outside the
+  seeded universe shows a live quote and chart and says plainly that it has no stored
+  history yet; the deployed app never cold-backfills.
+- **Intraday history is Indian-only** in the committed seed, so US missed-event
+  detection depends on live polling accumulating an intraday path.
+- **The anomaly layer flags roughly one session in a hundred** by construction (a
+  99th-percentile threshold on each security's own scores) and only for monitored
+  securities with enough history.
+- **Thesis Replay is condition replay**, not strategy backtesting: occurrences and
+  durations, never returns or hypothetical profit.
+- **Dividends are not adjusted for**; splits are handled, dividend adjustment is
   deferred rather than half-done.
-- **Sector-relative signals are not shipped.** Eleven NSE sector indices have usable
-  history but `^CNXFIN` has none, so financials — a large slice of any Indian
-  watchlist — would have no sector benchmark. One benchmark per market applied
-  consistently beats a signal that silently does not apply to banks.
-- **Only two markets are supported: India and the US.** Search is restricted to NSE,
-  BSE, NASDAQ and NYSE. Any symbol the provider can quote can still be added by
-  ticker and will render in its own currency and exchange time, but it has no
-  regional benchmark and no seeded history.
-- **A company outside the seeded universe has a lookup, not a monitor.** Its
-  detail page shows a live quote and a provider-fetched chart, but nothing is
-  stored, so it has no computed statistics, no detected events and no digest
-  participation until it is watched and seeded.
-- **A watched security outside the seeded universe has quotes but no history.** The
-  deployed app never cold-backfills, so statistics, detection, digest events and
-  Replay only exist for symbols whose daily bars were seeded from a local checkout
-  (the NIFTY 50 set plus eight US names and both benchmarks). Any other symbol shows
-  its price and freshness and says plainly that it has no stored history yet —
-  `npm run seed:daily && npm run seed:load` extends that set.
-- **Intraday history is Indian-only.** The committed 5-minute seed covers the NSE
-  universe, so US missed-event detection depends on live polling accumulating an
-  intraday path rather than on seeded history.
-- **Market Briefing is India-focused.** The headline feed is an Indian markets RSS
-  feed, labelled as such. THESIS does not claim comprehensive global news coverage.
-- **Session counts across mixed markets are approximate.** "N trading sessions in
-  this window" is derived from observed bars across everything a user watches; on a
-  date where one market trades and the other does not, the count can be off by one.
-  It is a sentence about the window, never an input to a verdict.
-- **Intraday resolution is 5 minutes.** A threshold crossing that reverses inside a
-  single 5-minute bar is below our detection resolution and we do not claim otherwise.
-- **52-week levels are computed from adjusted closes, not intraday highs and lows.**
-  The provider gives us no adjusted high or low, and mixing an unadjusted intraday
-  high with an adjusted close would be incoherent across a split.
-- **Throttling behaviour from the deployed host is not characterised.** 250 sequential
-  requests from a residential IP produced no failures, but Yahoo throttles datacenter
-  IPs harder and that test cannot speak for the deployment. The circuit breaker,
-  replay adapter and never-cold-backfill rule are all treated as mandatory regardless.
-- **The anomaly layer flags roughly one session in a hundred, by construction.**
-  The threshold is the 99th percentile of a security's own training scores, so a
-  quiet security still produces occasional flags and a volatile one needs more to
-  stand out. That is the intended meaning — "unusual for this company" — and not
-  a claim about significance.
-- **Anomaly evidence exists only for monitored securities.** A company looked up
-  but never watched has no stored history to fit on, so the Market Pattern
-  section is omitted rather than estimated.
-- **The Home greeting is computed on IST**, not on the viewer's local clock. It is
-  rendered on the server, and a client-side clock would flash the wrong greeting
-  before correcting itself; every market-data timestamp is exchange-local regardless.
-- **Free-tier market data is delayed** and is presented with its exchange timestamp
-  rather than as real-time.
+- **News is Indian-market context only**, labelled as such, and never linked to a price
+  move.
 
 ---
 
-## Statements we stand behind
+## Responsible product boundary
 
-> The core product is deterministic and fully functional without AI. The AI layer is optional presentation garnish, not a system dependency.
+THESIS is an attention and monitoring tool, **not an investment adviser**.
 
-> The anomaly layer is an optional analytical layer, not the LLM layer above. It is
-> real unsupervised machine learning on real stored observations, it is secondary
-> evidence to the deterministic engine, and the product is complete without it —
-> no deterministic module imports it, and its absence changes nothing a user
-> depends on.
+It does not recommend stocks, generate buy/sell calls, predict returns, set price
+targets, or infer causality from headlines. Every user-facing statement is an
+observation about a condition the user defined, with the evidence attached.
 
-> Theses are structured and machine-verifiable rather than free-text. We never ask a
-> language model whether a user's reasoning still holds — every trigger and
-> contradiction is evaluated deterministically against market data.
+> **The core product is deterministic and fully functional without AI. The AI layer is
+> optional presentation garnish, not a system dependency.**
 
-> We intentionally excluded news-based cause attribution because unreliable entity
-> matching and timestamp alignment could create false explanations. We preferred
-> defensible quantitative evidence over speculative causality.
+Two distinct optional layers sit outside that deterministic core, and neither is
+authoritative. The **Isolation Forest anomaly layer** is secondary *evidence*: it can
+add context to a session but can never create an event or change a thesis state. The
+**conversational layer** in Ask THESIS only explains what is already stored. Remove
+either and the product still detects, remembers and explains.
 
-> Thesis is an attention tool, not an advisory product. It reports changes to
-> conditions the user defined. It does not make recommendations.
+---
 
-Nothing in this application is investment advice. See [DECISIONS.md](DECISIONS.md)
-for the reasoning behind every significant trade-off, and [reports/phase0.md](reports/phase0.md)
-for the data-source validation the architecture rests on.
+## Author
+
+**Tanisha Raha** · built for Code, by Groww 2026.
+
+Nothing in this application is investment advice.

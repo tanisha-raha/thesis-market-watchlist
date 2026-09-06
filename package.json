@@ -22,7 +22,8 @@
     "test": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/tests.ts",
     "detect": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/detect.ts",
     "calibrate": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/calibrate-theses.ts",
-    "seed:demo": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/seed-demo.ts"
+    "seed:demo": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/seed-demo.ts",
+    "screenshots": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/screenshots.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
