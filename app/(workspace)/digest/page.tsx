@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { getDigest } from "@/lib/digest";
 import { getWatchlist } from "@/lib/watchlist";
+import { getThesisHealth } from "@/lib/notifications";
+import { ThesisHealthBadge } from "@/components/thesis-health-badge";
 import { Anomaly, Contradiction, Missed, Trigger } from "@/components/digest-cards";
 import { formatIST } from "@/lib/time";
 import { marketLine } from "@/lib/securities";
@@ -16,10 +18,14 @@ export default async function DigestPage() {
   const done = traceRoute("digest");
   const user = await traced("digest:session", () => getSessionUser());
   if (!user) redirect("/login");
-  const [d, rows] = await Promise.all([
+  const [d, rows, health] = await Promise.all([
     traced("digest:digest", () => getDigest(user.id)),
     traced("digest:watchlist", () => getWatchlist(user.id)),
+    traced("digest:health", () => getThesisHealth(user.id)),
   ]);
+  // Only the theses with something to say. A digest of "everything is fine" is
+  // the noise this product exists to avoid.
+  const attention = [...health.values()].filter((view) => view.health !== "STRONG");
   done();
   const counts = [
     { n: d.contradictions.length, label: "CONTRADICTED", detail: "Theses to revisit", tone: "text-contradiction" },
@@ -34,6 +40,14 @@ export default async function DigestPage() {
     <div className="summary-grid digest-counts">{counts.map((c) => <section key={c.label} className="metric-card"><span className="eyebrow">{c.label}</span><strong className={`num ${c.tone}`}>{c.n}</strong><span className="text-micro text-faint">{c.detail}</span></section>)}</div>
     <p className="text-micro text-faint mb-4">Snapshot through {formatIST(d.cutoff)} IST — the completion time of the last committed ingestion batch. Ordered by personal relevance; each event is shown in its own market’s currency and exchange time.</p>
     {nothingAtAll && <DashboardCard><EmptyState title="No meaningful changes since your last check." description={rows.length ? "No new trigger, contradiction, or reversal is recorded in this digest window." : "Add a company and an optional thesis. Your next meaningful change will have a place here."} icon="digest"><Link href="/watchlist" className="button-secondary mt-2">View watchlist</Link></EmptyState></DashboardCard>}
+    {attention.length > 0 && <DashboardCard title="Thesis Health" action={<span className="eyebrow">YOUR CONDITIONS</span>} className="mb-4">
+      <div className="digest-health">{attention.map((view) => <Link key={view.symbol} href={`/symbol/${encodeURIComponent(view.symbol)}`}>
+        <span className="digest-health-head"><strong className="num">{view.symbol}</strong><ThesisHealthBadge health={view.health} compact /></span>
+        <span>{view.reason}</span>
+        <span className="digest-health-link">Review thesis <Icon name="arrow" size={13} /></span>
+      </Link>)}</div>
+      <p className="panel-caption">Thesis Health evaluates the condition you stated, not the company or its expected return.</p>
+    </DashboardCard>}
     <div className="digest-timeline">
       {d.contradictions.map((c) => <Contradiction key={c.thesisId} card={c} />)}
       {d.triggers.map((c) => <Trigger key={c.thesisId} card={c} />)}

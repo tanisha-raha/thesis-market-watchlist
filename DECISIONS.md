@@ -1222,3 +1222,49 @@ questions answered as finance with what cannot be verified named explicitly,
 grounded questions answered from records, advisory questions refused and then
 answered usefully. 258 assertions, 48 smoke checks, 134 browser checks, the
 visual matrix in three appearances, navigation assertions and a clean build.
+
+## 2026-09-06 — Thesis Health, and notifications that answer "why look"
+
+Thesis Health had one dangerous failure mode available to it: becoming a rating.
+Four coloured states next to a company name is exactly the shape of Buy / Hold /
+Sell, so every decision here was made to keep it about the sentence the user
+wrote rather than about the business. The label always reads THESIS, never the
+ticker. There is no score, no arrow and no number, because a number invites
+arithmetic and there is none to do. And every surface carries the same sentence:
+it evaluates the condition you stated, not the company or its expected return.
+
+It is derived, not computed. Health is a pure function of the thesis state
+machine and the verdicts the engine already committed — a second scorer would
+eventually disagree with the engine, and then the product would be telling the
+reader two different things. INVALIDATED has one route only: a standing
+contradiction, which the engine already requires two of three independent
+conditions sustained across three sessions to record. MATERIALLY_WEAKENED means
+that contradiction was acknowledged and nothing has met the condition since.
+NEEDS_ATTENTION is a met condition nobody has looked at, which is the attention
+tool working rather than bad news. STRONG is the default, including for a brand
+new thesis: absence of evidence is never evidence against, so missing history, a
+stale quote, a degraded feed and an anomaly classification cannot move it at all.
+
+Notifications inherit the same discipline. "RELIANCE fell 3.2%" answers a
+question this product does not ask; a notification exists only after the
+deterministic engine has decided a move meant something for a condition somebody
+wrote down. Each row names the committed verdict or change event it came from,
+and the unique index over (user, type, source) is the entire de-duplication
+story — generation is an idempotent insert, so it can run whenever it is
+convenient. It runs when the bell fetches, after mount, because deriving from
+committed evidence must not sit between a click and a rendered page.
+
+A detected event only notifies when it fired AND reversed AND did so after this
+account started watching that company, so nothing that was visible while the
+user was looking is replayed at them.
+
+WhatsApp is a column, not a feature. Delivery is channel-aware so another channel
+plugs in without touching generation, and the preference row says UNAVAILABLE
+because a provider account, a verified business sender, approved templates and
+explicit opt-in are all absent. Claiming otherwise would be the one thing worse
+than not having it.
+
+Two additive tables, nothing existing referenced. 283 assertions including the
+four health transitions, the conservative cases, idempotency, read state, user
+and LIVE/DEMO isolation; 48 smoke checks, 144 browser checks, the visual matrix
+in three appearances, navigation assertions unchanged, and a clean build.

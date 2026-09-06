@@ -2,6 +2,7 @@
 import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { AccountMenu } from "@/components/account-menu";
+import { NotificationCenter } from "@/components/notification-center";
 import { AppSidebar, GlobalSearch, MenuButton, WorkspaceProvider } from "@/components/workspace-controls";
 
 export type WorkspaceSnapshot = {
@@ -31,6 +32,7 @@ export function WorkspaceShell({ initial, logout, children }: { initial: Workspa
     <div className="terminal-workspace">
       <header className="top-bar"><MenuButton /><GlobalSearch watched={snapshot.watched} />
         <div className="top-feed"><span className={`feed-dot ${snapshot.feed.tone}`} /><div><strong>{snapshot.feed.label}</strong><small>{snapshot.feed.timestamp}</small></div></div>
+        <NotificationCenter />
         <AccountMenu name={snapshot.displayName} email={snapshot.email} logout={logout} />
       </header>
       <div className={`workspace-content page-${active}`}><div className="workspace-main">{children}</div></div>

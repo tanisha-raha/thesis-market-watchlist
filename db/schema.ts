@@ -1,5 +1,5 @@
 import {
-  pgTable, text, timestamp, integer, numeric, uniqueIndex, index, serial, date, jsonb,
+  pgTable, text, timestamp, integer, numeric, uniqueIndex, index, serial, date, jsonb, boolean,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -371,3 +371,49 @@ export const marketAnomalies = pgTable("market_anomalies", {
   uniqueIndex("market_anomalies_identity_idx").on(t.symbol, t.tradingDate, t.modelVersion, t.dataMode),
   index("market_anomalies_symbol_date_idx").on(t.symbol, t.tradingDate),
 ]);
+
+/**
+ * Thesis-aware notifications.
+ *
+ * The product is an attention tool, so a notification has to answer "why should
+ * I look at this" rather than "a number moved". Every row is derived from a
+ * committed thesis verdict or change event and carries the one sentence that
+ * explains it, composed from that row's own stored evidence.
+ *
+ * `sourceKind`/`sourceId` are the identity: the unique index over
+ * (user, type, sourceKind, sourceId) is the only de-duplication in the system,
+ * so generation can run as often as it likes and stay idempotent.
+ */
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  symbol: text("symbol").notNull().references(() => symbols.symbol, { onDelete: "cascade" }),
+  type: text("type").notNull(),                 // CONDITION_TRIGGERED | THESIS_INVALIDATED | ...
+  /** IN_APP today. The column is the seam another channel plugs into. */
+  channel: text("channel").notNull().default("IN_APP"),
+  dataMode: text("data_mode").notNull().default("live"),
+  /** Thesis health when generated. Null when no structured thesis is involved. */
+  health: text("health"),
+  reason: text("reason").notNull(),
+  link: text("link").notNull(),
+  sourceKind: text("source_kind").notNull(),    // thesis_event | change_event
+  sourceId: integer("source_id").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("notifications_identity_idx").on(t.userId, t.type, t.sourceKind, t.sourceId),
+  index("notifications_user_idx").on(t.userId, t.occurredAt),
+]);
+
+/** What a user wants to be told about. Defaults are every thesis signal, and nothing else. */
+export const notificationPreferences = pgTable("notification_preferences", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  inApp: boolean("in_app").notNull().default(true),
+  onTrigger: boolean("on_trigger").notNull().default(true),
+  onNeedsAttention: boolean("on_needs_attention").notNull().default(true),
+  onWeakened: boolean("on_weakened").notNull().default(true),
+  onInvalidated: boolean("on_invalidated").notNull().default(true),
+  onReversal: boolean("on_reversal").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

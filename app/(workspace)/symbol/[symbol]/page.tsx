@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { theses, watchlistItems } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { getWatchlist } from "@/lib/watchlist";
+import { getThesisHealth } from "@/lib/notifications";
 import { getCompanyView } from "@/lib/company";
 import type { StoredThesis } from "@/lib/presentation";
 import { Evidence } from "@/components/evidence";
@@ -49,7 +50,7 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
   // Everything the visible top of the page needs, in one round trip. The event
   // history, the replay and the anomaly classification stream in behind their
   // own boundaries — see components/symbol-sections.tsx.
-  const [items, rows] = await Promise.all([
+  const [items, rows, health] = await Promise.all([
     traced("symbol:thesis", () => company.watched
       ? db.select({
           itemId: watchlistItems.id, thesisId: theses.id, thesisType: theses.type, thesisNote: theses.note,
@@ -60,6 +61,7 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
         .where(eq(watchlistItems.id, company.watchlistItemId!)).limit(1)
       : Promise.resolve([])),
     traced("symbol:watchlist", () => getWatchlist(user.id)),
+    traced("symbol:health", () => getThesisHealth(user.id)),
   ]);
   done();
   const item = items[0];
@@ -122,7 +124,7 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
             <PriceHistorySection symbol={symbol} intraday={company.intraday} exchange={security.exchange} timeZone={security.timeZone} />
           </Suspense>}
       {company.watched
-        ? <ThesisCard thesis={thesis} company={company.name} currency={security.currency} timeZone={security.timeZone}>
+        ? <ThesisCard thesis={thesis} company={company.name} currency={security.currency} timeZone={security.timeZone} health={health.get(symbol) ?? null}>
             {item?.paramsAdjustedAt && adjustments.map((a, i) => <div className="adjustment-note" key={i}><strong>Adjusted for a corporate action</strong><p className="mt-1">{a.reason} · {a.factor}× · {a.affectedFrom} to {a.affectedTo}</p>{Object.keys(a.before).map((key) => <p key={key}>{key}: <s>{money(a.before[key])}</s> → {money(a.after[key])}</p>)}</div>)}
             {item?.thesisId && <form action={acknowledge} className="mt-4"><input type="hidden" name="thesisId" value={item.thesisId} /><button className="button-secondary">Keep watching</button></form>}
           </ThesisCard>

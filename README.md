@@ -166,6 +166,29 @@ one.** Set `OPENAI_API_KEY` for unrestricted general chat. Without it, concepts,
 frameworks, company evidence, comparisons and every grounded answer still work,
 and anything outside them says so plainly rather than guessing.
 
+### Thesis Health
+A state for every watched security with a structured condition: **STRONG**,
+**NEEDS ATTENTION**, **MATERIALLY WEAKENED**, **INVALIDATED**. It evaluates the
+condition you stated — never the company, never expected return, and never as
+Buy / Hold / Sell. *THESIS evaluates the reasoning. You evaluate the investment.*
+
+It is derived, not scored: a pure function of the thesis state machine and the
+verdicts the engine already committed. Missing history, a stale quote, a degraded
+feed and an anomaly classification are all invisible to it, and INVALIDATED has
+exactly one route — the engine's own contradiction rule, two of three independent
+conditions sustained across three sessions.
+
+### Notifications
+Generated from committed evidence, never from a price move. Each one names the
+company, the state, one sentence of why it matters, when, and a link to the
+evidence. Every row is tied to the committed thesis verdict or change event it
+came from, and the unique index over that identity is the only de-duplication in
+the system — generation is an insert that mostly does nothing.
+
+Delivery is channel-aware (`IN_APP` today). WhatsApp is shown as unavailable
+rather than pretending: it needs a provider account, a verified sender, approved
+templates and explicit opt-in, none of which is configured.
+
 ---
 
 ## What counts as "meaningful"?
@@ -485,7 +508,7 @@ The suite is written around the promises the product makes, not around coverage:
 - **global support** — search, currency, exchange clocks and benchmarks across NSE/NASDAQ/NYSE
 - **cross-user isolation** — no user's context can widen to another user's data
 
-Latest verified run: **258 assertions passing**, **48 smoke checks**, **134 browser
+Latest verified run: **283 assertions passing**, **48 smoke checks**, **144 browser
 checks**, a clean production build, and the visual matrix passing across four viewports
 in all three appearances.
 

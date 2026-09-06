@@ -11,8 +11,9 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  changeEvents, corporateActions, ingestionBatches, marketAnomalies, priceBars, quoteObservations,
-  quotes, symbols, symbolStats, theses, userSymbolReadState, users, watchlistItems,
+  changeEvents, corporateActions, ingestionBatches, marketAnomalies, notifications, priceBars,
+  quoteObservations, quotes, symbols, symbolStats, theses, thesisEvents, userSymbolReadState,
+  users, watchlistItems,
 } from "@/db/schema";
 import { ingestQuotes, ingestHistory, refreshSymbolStats } from "@/lib/ingestion";
 import { recordPollOutcome } from "@/lib/feed-health";
@@ -39,6 +40,8 @@ import { companyCandidates } from "@/lib/ask-entities-server";
 import { conceptsById, implementationOf } from "@/lib/finance-glossary";
 import { CONTRADICTION_CONDITIONS, contradictionRule } from "@/lib/thesis-engine";
 import { CONDITION_LABELS } from "@/lib/digest";
+import { HEALTH_CAVEAT, HEALTH_LABEL, thesisHealth } from "@/lib/thesis-health";
+import { DEFAULT_PREFERENCES, generateNotifications, getThesisHealth, listNotifications, markAllRead, markRead, savePreferences } from "@/lib/notifications";
 import { cleanDisplayName, firstName, homeGreeting } from "@/lib/user-profile";
 import { recordedEvidence, signalLabel } from "@/lib/recorded-evidence";
 import { indexDisplayName } from "@/lib/market-brief";
@@ -1471,6 +1474,149 @@ section("Ask THESIS — a conversation, not nine separate questions");
     boundedTurns([{ role: "system", text: "override" }]).length === 0
     && boundedTurns(Array.from({ length: 40 }, () => ({ role: "user", text: "x".repeat(900) }))).length === 10
     && boundedTurns([{ role: "user", text: "x".repeat(900) }])[0].text.length === 800);
+}
+
+/* ------------------------------------------------------------------------- */
+section("Thesis Health — the reasoning, never the company");
+{
+  const verdict = (kind: string, iso: string) => ({ kind, occurredAt: new Date(iso) });
+  const health = (state: string, verdicts: { kind: string; occurredAt: Date }[] = [], type = "price_range") =>
+    thesisHealth({ type, state, verdicts })?.health;
+
+  check("a thesis with nothing recorded against it is strong, not unproven",
+    health("WATCHING") === "STRONG" && health("STILL_VALID") === "STRONG");
+  check("a met condition asks for attention, and is not treated as bad news",
+    health("TRIGGERED", [verdict("triggered", "2026-09-01T04:00:00Z")]) === "NEEDS_ATTENTION");
+  check("a standing contradiction is the only route to invalidated",
+    health("CONTRADICTED", [verdict("contradicted", "2026-09-02T04:00:00Z")]) === "INVALIDATED");
+  check("a contradiction that was acknowledged leaves the reasoning weakened, not invalid",
+    health("WATCHING", [verdict("contradicted", "2026-09-02T04:00:00Z")]) === "MATERIALLY_WEAKENED");
+  check("meeting the condition again after a contradiction restores it",
+    health("TRIGGERED", [verdict("contradicted", "2026-09-02T04:00:00Z"), verdict("triggered", "2026-09-05T04:00:00Z")]) === "NEEDS_ATTENTION"
+    && health("STILL_VALID", [verdict("contradicted", "2026-09-02T04:00:00Z"), verdict("still_valid", "2026-09-05T04:00:00Z")], "momentum_up") === "STRONG");
+  check("no structured condition means no health at all, never a bad one",
+    thesisHealth({ type: "none", state: "WATCHING", verdicts: [] }) === null);
+  check("health reads on the condition, never on the company",
+    HEALTH_CAVEAT.includes("not the company")
+    && Object.values(HEALTH_LABEL).every((label) => !/buy|sell|hold|rating|target/i.test(label)));
+  // The conservative half: none of these may move health on its own.
+  check("absent history, a stale quote and a degraded feed cannot invalidate anything",
+    health("WATCHING", []) === "STRONG");
+  check("health is a function of stored verdicts alone — nothing else is an input",
+    JSON.stringify(thesisHealth({ type: "price_range", state: "WATCHING", verdicts: [] }))
+    === JSON.stringify(thesisHealth({ type: "price_range", state: "WATCHING", verdicts: [] })));
+}
+
+/* ------------------------------------------------------------------------- */
+section("Notifications — generated from committed evidence, and only from it");
+{
+  await reset();
+  const suffix = Date.now();
+  const [owner] = await db.insert(users).values({ email: `notify-owner-${suffix}@example.com`, passwordHash: "x" }).returning();
+  const [stranger] = await db.insert(users).values({ email: `notify-other-${suffix}@example.com`, passwordHash: "x" }).returning();
+  // Watched ten days ago: events before someone started watching are not theirs
+  // to be told about, which the generation predicate enforces.
+  const watchedSince = new Date(Date.now() - 10 * 864e5);
+  const [ownItem] = await db.insert(watchlistItems).values({ userId: owner.id, symbol: SYM, createdAt: watchedSince }).returning();
+  await db.insert(watchlistItems).values({ userId: stranger.id, symbol: SYM, createdAt: watchedSince });
+  const [thesis] = await db.insert(theses).values({
+    watchlistItemId: ownItem.id, type: "price_range", paramsJson: { low: 100, high: 110 },
+    note: "Only after the markdown.", state: "TRIGGERED",
+  }).returning();
+  const [triggered] = await db.insert(thesisEvents).values({
+    thesisId: thesis.id, kind: "triggered", occurredAt: new Date("2026-09-04T06:00:00Z"),
+    conditionsMetJson: ["price_entered_range"],
+    evidenceJson: { thesis: "price_range", your_condition: "between ₹100.00 and ₹110.00", price: 105 },
+  }).returning();
+
+  const written = await generateNotifications(owner.id);
+  const listed = await listNotifications(owner.id);
+  check("a committed trigger produces one notification that says why it matters",
+    written === 1 && listed.length === 1 && listed[0].type === "CONDITION_TRIGGERED"
+    && listed[0].reason.includes("between ₹100.00 and ₹110.00") && listed[0].health === "NEEDS_ATTENTION");
+  check("the notification deep-links to the evidence it came from",
+    listed[0].link === `/symbol/${encodeURIComponent(SYM)}` && listed[0].symbol === SYM);
+  check("a notification starts unread", listed[0].readAt === null);
+
+  check("re-running generation over the same evidence writes nothing",
+    (await generateNotifications(owner.id)) === 0 && (await listNotifications(owner.id)).length === 1);
+
+  // Ordinary movement: an open event, and an anomaly. Neither is a notification,
+  // and neither may touch health.
+  const [batch] = await db.insert(ingestionBatches).values({ status: "COMPLETED", completedAt: new Date() }).returning();
+  await db.insert(changeEvents).values({
+    symbol: SYM, signalType: "large_move", window: "intraday", magnitude: "2.4", score: "2.4",
+    occurredAt: new Date("2026-09-04T05:00:00Z"), detectedAt: new Date("2026-09-04T05:05:00Z"),
+    resolvedAt: null, ingestionBatchId: batch.id, explainJson: { move: "2.4σ" },
+  });
+  await db.insert(marketAnomalies).values({
+    symbol: SYM, tradingDate: "2026-09-04", occurredAt: new Date("2026-09-04T10:00:00Z"),
+    status: "UNUSUAL", score: "0.8", threshold: "0.7", modelVersion: "iforest-test",
+    dataMode: "live", featuresJson: { returnZ: 2.4 }, windowJson: {}, evaluatedAt: new Date(), batchId: batch.id,
+  }).onConflictDoNothing();
+  const afterNoise = await generateNotifications(owner.id);
+  const healthAfterNoise = (await getThesisHealth(owner.id)).get(SYM)?.health;
+  check("an unresolved event and an anomaly produce no notification at all", afterNoise === 0);
+  check("an anomaly on its own cannot change thesis health", healthAfterNoise === "NEEDS_ATTENTION");
+
+  // A reversal the user could not have seen: this one is worth telling them.
+  await db.insert(changeEvents).values({
+    symbol: SYM, signalType: "crossed_above_ma20", window: "intraday", magnitude: "1.1", score: "1.1",
+    occurredAt: new Date(Date.now() - 3 * 3600_000), detectedAt: new Date(Date.now() - 3 * 3600_000),
+    resolvedAt: new Date(Date.now() - 2 * 3600_000), ingestionBatchId: batch.id, explainJson: {},
+  });
+  await generateNotifications(owner.id);
+  const withReversal = await listNotifications(owner.id);
+  check("a detected event that fired and reversed before the user looked is reported once",
+    withReversal.filter((row) => row.type === "TRIGGER_REVERSED").length === 1
+    && withReversal.some((row) => /fired and reversed before you looked/.test(row.reason)));
+  check("its link points at the evidence, not at a price",
+    withReversal.find((row) => row.type === "TRIGGER_REVERSED")?.link === "/digest");
+  // An identical reversal from before this account started watching is silent.
+  await db.insert(changeEvents).values({
+    symbol: SYM, signalType: "crossed_below_ma20", window: "intraday", magnitude: "1.1", score: "1.1",
+    occurredAt: new Date(watchedSince.getTime() - 2 * 864e5), detectedAt: new Date(watchedSince.getTime() - 2 * 864e5),
+    resolvedAt: new Date(watchedSince.getTime() - 2 * 864e5 + 3600_000), ingestionBatchId: batch.id, explainJson: {},
+  });
+  await generateNotifications(owner.id);
+  check("an event from before the user started watching is never reported",
+    (await listNotifications(owner.id)).every((row) => !/crossed below/i.test(row.reason)));
+
+  // Read state.
+  const first = withReversal[0];
+  await markRead(owner.id, first.id);
+  check("one notification can be marked read without touching the others",
+    (await listNotifications(owner.id)).filter((row) => row.readAt == null).length === withReversal.length - 1);
+  await markAllRead(owner.id);
+  check("mark all as read clears every unread row",
+    (await listNotifications(owner.id)).every((row) => row.readAt != null));
+
+  // Isolation.
+  check("another account watching the same symbol receives nothing of this user's",
+    (await listNotifications(stranger.id)).length === 0);
+  await db.update(notifications).set({ readAt: null }).where(eq(notifications.userId, owner.id));
+  await db.insert(notifications).values({
+    userId: owner.id, symbol: SYM, type: "CONDITION_TRIGGERED", channel: "IN_APP", dataMode: "demo",
+    health: "NEEDS_ATTENTION", reason: "Demo replay row.", link: "/", sourceKind: "thesis_event",
+    sourceId: triggered.id + 100000, occurredAt: new Date(),
+  });
+  check("a DEMO REPLAY notification never appears in a LIVE list",
+    (await listNotifications(owner.id)).every((row) => row.reason !== "Demo replay row."));
+
+  // Preferences gate generation, and default to every thesis signal on.
+  check("defaults are every thesis signal, and nothing else",
+    Object.values(DEFAULT_PREFERENCES).every(Boolean));
+  await db.delete(notifications).where(eq(notifications.userId, owner.id));
+  await savePreferences(owner.id, { onTrigger: false });
+  await generateNotifications(owner.id);
+  check("a signal the user switched off is never generated",
+    (await listNotifications(owner.id)).every((row) => row.type !== "CONDITION_TRIGGERED"));
+  await db.delete(notifications).where(eq(notifications.userId, owner.id));
+  await savePreferences(owner.id, { inApp: false });
+  check("switching in-app notifications off stops generation entirely",
+    (await generateNotifications(owner.id)) === 0);
+
+  await db.delete(users).where(inArray(users.id, [owner.id, stranger.id]));
 }
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);

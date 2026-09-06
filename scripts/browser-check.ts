@@ -288,11 +288,56 @@ try {
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByText("In watchlist")).toBeVisible({ timeout: 40000 });
   check("the detail page reflects being watched, with its thesis", /\$1,000\.00 – \$1,200\.00/.test(await page.locator(".thesis-card").innerText()));
+
+  // THESIS HEALTH. A brand-new condition with nothing recorded against it is
+  // strong — absence of evidence is never evidence against.
+  const thesisCard = await page.locator(".thesis-card").innerText();
+  check("Thesis Health is shown inside My Thesis, and says what it evaluates",
+    /THESIS STRONG/.test(thesisCard) && /evaluates the condition you stated, not the company/.test(thesisCard));
+  check("Thesis Health never reads as a stock rating", !/\b(BUY|SELL|HOLD)\b/.test(thesisCard));
   await visit("/watchlist");
   await page.getByRole("button", { name: "Remove BLK" }).waitFor({ timeout: 40000 });
   const mixedTable = await page.locator(".watchlist-table").innerText();
   check("one watchlist holds both currencies, each in its own units", /\$[\d,]+\.\d{2}/.test(mixedTable) && /₹[\d,]+\.\d{2}/.test(mixedTable));
   check("each row states its own exchange and market", /NYSE · US/.test(mixedTable) && /NSE · India/.test(mixedTable));
+  check("the watchlist carries Thesis Health compactly, only where a condition exists",
+    /Thesis Health/.test(await page.locator(".watchlist-table thead").innerText())
+    && (await page.locator(".watchlist-table .health-badge").count()) >= 1);
+
+  // THE NOTIFICATION CENTRE. Nothing has happened to this account's conditions,
+  // so the bell carries no badge and says so plainly.
+  const bell = page.getByRole("button", { name: /^Notifications/ });
+  await expect(bell).toBeVisible();
+  check("the bell shows no badge when nothing is unread", (await page.locator(".notification-badge").count()) === 0);
+  await bell.click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toBeVisible();
+  const panel = await page.locator(".notification-panel").innerText();
+  check("the notification centre has an honest empty state",
+    /Nothing needs your attention\./.test(panel) && /never when a price simply moved/.test(panel));
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#notification-panel")).toHaveCount(0);
+  check("Escape closes the notification panel", true);
+
+  await account();
+  const dropdown = await page.locator("#account-dropdown").innerText();
+  check("notification preferences live in the account menu, with sensible defaults",
+    /In-app notifications/.test(dropdown) && /My condition triggers/.test(dropdown)
+    && /My thesis is invalidated/.test(dropdown)
+    && (await page.locator('#account-dropdown input[type="checkbox"]:checked').count()) === 6);
+  check("WhatsApp is labelled unavailable rather than pretending to send",
+    /WhatsApp alerts/.test(dropdown) && /UNAVAILABLE/.test(dropdown) && /not configured for this deployment/.test(dropdown));
+  const saved = page.waitForResponse((r) => r.url().endsWith("/api/notifications") && r.request().method() === "POST");
+  await page.getByRole("checkbox", { name: "My condition triggers" }).uncheck();
+  await expect(page.getByRole("checkbox", { name: "My condition triggers" })).not.toBeChecked();
+  check("a preference change is persisted, not held in the browser", (await saved).ok());
+  await page.keyboard.press("Escape");
+  await visit("/watchlist"); await account();
+  await expect(page.getByRole("checkbox", { name: "My condition triggers" })).not.toBeChecked();
+  check("a notification preference persists across navigation", true);
+  const restored = page.waitForResponse((r) => r.url().endsWith("/api/notifications") && r.request().method() === "POST");
+  await page.getByRole("checkbox", { name: "My condition triggers" }).check();
+  await restored;
+  await page.keyboard.press("Escape");
   await page.getByRole("link", { name: "BLK", exact: true }).click(); await page.waitForURL("**/symbol/BLK");
   const usDetail = await page.locator(".symbol-heading").innerText();
   check("US symbol detail states NYSE, US and USD", /NYSE/.test(usDetail) && /USD/.test(usDetail) && /\$[\d,]+\.\d{2}/.test(usDetail));

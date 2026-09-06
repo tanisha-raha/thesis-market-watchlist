@@ -41,7 +41,7 @@ import type { Bar } from "@/lib/market/types";
  * it either. The NSE session is 09:15–15:30 IST, 375 minutes; rounded up
  * slightly for events straddling the open or close.
  */
-const MISSED_MAX_OPEN_MINUTES = 390;
+export const MISSED_MAX_OPEN_MINUTES = 390;
 
 /**
  * The shortest an event can be and still be worth reporting as missed.
@@ -51,7 +51,7 @@ const MISSED_MAX_OPEN_MINUTES = 390;
  * nobody was watching that closely anyway. Two consecutive observations is the
  * minimum that describes something that actually persisted and then reversed.
  */
-const MISSED_MIN_OPEN_MINUTES = 10;
+export const MISSED_MIN_OPEN_MINUTES = 10;
 
 /**
  * At most one missed event per symbol in the digest.

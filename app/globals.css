@@ -71,6 +71,11 @@
   --analytical-soft: #202632;
   --note-surface: #101c22;
   --overlay: #020609c9;
+  /* Thesis Health. Four steps, and the only place orange appears in the product. */
+  --health-strong: #47d9b2;      --health-strong-soft: #103b30;
+  --health-attention: #d8b35b;   --health-attention-soft: #332b17;
+  --health-weakened: #e8974f;    --health-weakened-soft: #35240f;
+  --health-invalidated: #ef8585; --health-invalidated-soft: #351c27;
 }
 
 html[data-theme="light"] {
@@ -107,6 +112,10 @@ html[data-theme="light"] {
   --analytical-soft: #eeeaf7;
   --note-surface: #f2f6fc;
   --overlay: #20323e80;
+  --health-strong: #087553;      --health-strong-soft: #d9f0e5;
+  --health-attention: #8e6717;   --health-attention-soft: #f7ebc9;
+  --health-weakened: #a8551a;    --health-weakened-soft: #fbe6d3;
+  --health-invalidated: #b23b52; --health-invalidated-soft: #f8dfe5;
 }
 
 /**
@@ -156,6 +165,10 @@ html[data-theme="aurora"] {
   --analytical-soft: #1f1846;
   --note-surface: #0c1322;
   --overlay: #02040bd9;
+  --health-strong: #3fe3ad;      --health-strong-soft: #06342e;
+  --health-attention: #f0c274;   --health-attention-soft: #2e2417;
+  --health-weakened: #ff9f5a;    --health-weakened-soft: #331d0f;
+  --health-invalidated: #ff8ea6; --health-invalidated-soft: #2c1524;
   /* Ambient hues, referenced by the treatments at the end of this file. */
   --aurora-emerald: 52, 226, 176;
   --aurora-cyan: 56, 189, 248;
@@ -798,12 +811,88 @@ html[data-theme="light"] .home-hero { border-color: #b9ccd6; }
   .market-indices { grid-template-columns: minmax(0,1fr); gap: 10px; }
   .index-card { min-height: 0; }
   .index-level { font-size: 24px; }
-  .index-foot { flex-wrap: wrap; }
+  /* The foot wraps at this width, and how many lines it takes depends on the
+     freshness label. Reserving both lines keeps six cards the same height
+     whatever the feed happens to be saying. */
+  .index-foot { flex-wrap: wrap; min-height: 30px; align-content: flex-start; }
+  /* One card per row here, so the grid no longer equalises heights for us. A
+     card whose history is unavailable must still be the height of one that
+     drew a chart, or the stack steps by ten pixels for no reason. */
+  .index-spark { height: 50px; }
+  .index-spark svg { height: 100%; }
   .thesis-strip-metrics { gap: 10px; }
   .thesis-strip-metrics strong { font-size: 24px; }
   .home-hero h1 { font-size: 24px; }
   .account-trigger > span:not(.user-avatar) { display: none; }
   .replay-panel .panel-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+}
+
+
+/* ------------------------------------------- thesis health and notifications */
+/*
+ * One badge vocabulary, used on Symbol Detail, the watchlist, the digest and
+ * inside a notification, so the same state never looks like two different
+ * things. Colour steps green → yellow → orange → red and carries no other
+ * meaning: it is the state of a stated condition, never a view on a company.
+ */
+.health-badge { display: inline-flex; align-items: center; white-space: nowrap; border-radius: 4px; padding: 4px 7px; font-size: 8px; font-weight: 650; letter-spacing: .02em; line-height: 1.3; border: 1px solid transparent; }
+.health-badge.compact { font-size: 7.5px; padding: 3px 6px; }
+.health-badge.strong { color: var(--health-strong); background: var(--health-strong-soft); border-color: color-mix(in srgb, var(--health-strong) 30%, transparent); }
+.health-badge.attention { color: var(--health-attention); background: var(--health-attention-soft); border-color: color-mix(in srgb, var(--health-attention) 30%, transparent); }
+.health-badge.weakened { color: var(--health-weakened); background: var(--health-weakened-soft); border-color: color-mix(in srgb, var(--health-weakened) 32%, transparent); }
+.health-badge.invalidated { color: var(--health-invalidated); background: var(--health-invalidated-soft); border-color: color-mix(in srgb, var(--health-invalidated) 34%, transparent); }
+
+.thesis-health { margin-top: 14px; padding: 13px 14px; border-radius: 6px; border: 1px solid var(--color-line); background: var(--surface-input); border-left-width: 3px; }
+.thesis-health.strong { border-left-color: var(--health-strong); }
+.thesis-health.attention { border-left-color: var(--health-attention); }
+.thesis-health.weakened { border-left-color: var(--health-weakened); }
+.thesis-health.invalidated { border-left-color: var(--health-invalidated); }
+.thesis-health-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.thesis-health p { font-size: 12px; line-height: 1.65; color: var(--color-muted); }
+.thesis-health small { display: block; margin-top: 8px; font-size: 10px; line-height: 1.6; color: var(--color-faint); }
+
+.health-cell { white-space: nowrap; }
+.digest-health { display: grid; gap: 9px; padding: 0 17px 17px; }
+.digest-health > a { display: grid; gap: 6px; padding: 12px 13px; border: 1px solid var(--color-line); border-radius: 5px; background: var(--surface-input); }
+.digest-health > a:hover { border-color: var(--color-line-strong); }
+.digest-health-head { display: flex; align-items: center; gap: 9px; }
+.digest-health > a > span:nth-child(2) { font-size: 11.5px; line-height: 1.6; color: var(--color-muted); }
+.digest-health-link { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--color-accent); }
+
+/* The bell. A badge appears only when something is actually unread. */
+.notification-control { position: relative; }
+.notification-trigger { position: relative; border-color: var(--color-line); background: var(--surface-card); }
+.notification-badge { position: absolute; top: -4px; right: -4px; min-width: 15px; height: 15px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--health-attention); color: var(--color-paper); font-size: 8px; font-weight: 700; line-height: 1; }
+.notification-panel { position: absolute; z-index: 60; top: calc(100% + 9px); right: 0; width: min(370px, calc(100vw - 24px)); max-height: min(560px, 78vh); overflow: auto; border: 1px solid var(--color-line-strong); border-radius: 8px; background: var(--surface-card); box-shadow: 0 22px 60px -28px #000c; }
+.notification-panel > header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--color-line); background: var(--surface-card); }
+.notification-panel > header strong { font-size: 12px; }
+.notification-readall { font-size: 10px; color: var(--color-accent); }
+.notification-list { list-style: none; }
+.notification-list > li { border-bottom: 1px solid var(--color-line); }
+.notification-list > li.is-unread { background: var(--surface-positive); }
+.notification-list a { display: grid; gap: 7px; padding: 13px 15px; }
+.notification-list a:hover { background: var(--surface-raised); }
+.notification-head { display: flex; align-items: center; gap: 9px; }
+.notification-head strong { font-size: 11px; }
+.notification-list p { font-size: 11.5px; line-height: 1.6; color: var(--color-muted); }
+.notification-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 10px; color: var(--color-faint); }
+.notification-foot > span:last-child { display: inline-flex; align-items: center; gap: 5px; color: var(--color-accent); }
+.notification-empty { display: grid; justify-items: center; gap: 8px; padding: 34px 24px; text-align: center; color: var(--color-faint); }
+.notification-empty p { font-size: 12px; color: var(--color-ink); }
+.notification-empty small { font-size: 10px; line-height: 1.6; max-width: 250px; }
+.notification-caption { padding: 11px 15px; border-top: 1px solid var(--color-line); font-size: 9.5px; line-height: 1.6; color: var(--color-faint); }
+
+.account-notifications { margin-top: 4px; }
+.notify-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; padding: 4px 0; }
+.notify-toggle.is-unavailable { color: var(--color-faint); }
+.notify-heading { margin-top: 10px; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-faint); }
+.notify-options { display: grid; gap: 7px; margin-top: 8px; }
+.notify-options label { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--color-muted); }
+.notify-options input:disabled + span { color: var(--color-faint); }
+.account-notifications > small { display: block; margin-top: 9px; font-size: 10px; line-height: 1.6; color: var(--color-faint); }
+
+@media (max-width: 767px) {
+  .notification-panel { position: fixed; top: 62px; right: 8px; left: 8px; width: auto; }
 }
 
 /* ------------------------------------------------------------------ aurora */
@@ -905,3 +994,10 @@ html[data-theme="aurora"] .status-badge.amber { background: var(--badge-amber-bg
 html[data-theme="aurora"] .is-loading {
   background: linear-gradient(100deg, rgba(var(--aurora-emerald), 0.05), rgba(var(--aurora-violet), 0.05)), var(--surface-card);
 }
+html[data-theme="aurora"] .notification-panel,
+html[data-theme="aurora"] .thesis-health,
+html[data-theme="aurora"] .digest-health > a {
+  background: linear-gradient(178deg, rgba(255, 255, 255, 0.022), transparent 58%), var(--surface-card);
+  border-color: color-mix(in srgb, rgb(var(--aurora-cyan)) 12%, var(--color-line));
+}
+html[data-theme="aurora"] .notification-list > li.is-unread { background: rgba(var(--aurora-emerald), 0.07); }
