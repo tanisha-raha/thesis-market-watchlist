@@ -172,37 +172,21 @@ small, and the depth goes into the engines.
 
 ```mermaid
 flowchart TD
-    P["Market data provider<br/>(yahoo-finance2)"] --> I
-    subgraph NEXT["Next.js App Router - single deployable on Vercel"]
-        I["Scheduled ingestion<br/>/api/ingest - protected route<br/>the only writer of quotes"]
-        DE["Deterministic change engine<br/>pure - O(unique symbols)"]
-        IF["Isolation Forest<br/>anomaly layer - optional"]
-        TE["Thesis evaluation<br/>2-of-3 conditions + persistence"]
-        DG["Digest composition<br/>per-user, per-symbol watermarks"]
-        UI["Home - Watchlist - Company detail<br/>Digest - Ask THESIS"]
-    end
-    subgraph DB["PostgreSQL on Neon"]
-        OBS[("price_bars - quote_observations<br/>append-only observations")]
-        ST[("symbol_stats")]
-        CE[("change_events<br/>immutable evidence")]
-        MA[("market_anomalies<br/>immutable, mode-scoped")]
-        TH[("theses - thesis_events")]
-    end
-    I --> OBS
-    I --> ST
-    OBS --> DE
-    ST --> DE
-    DE --> CE
-    OBS -.optional.-> IF
-    IF -.secondary evidence.-> MA
-    CE --> TE
-    TH --> TE
-    TE --> TH
-    CE --> DG
-    TH --> DG
-    DG --> UI
-    MA -.context only.-> UI
+    P["Market data provider<br/>yahoo-finance2"] --> ING
+    ING["Scheduled ingestion · /api/ingest<br/>protected route · the only writer of quotes"] --> OBS
+    OBS[("PostgreSQL on Neon<br/>price_bars · quote_observations · symbol_stats<br/>append-only observations")]
+    OBS --> DET["Deterministic change engine<br/>pure · runs once per symbol"]
+    OBS -. optional .-> ML["Isolation Forest<br/>anomaly layer"]
+    DET --> CE[("change_events<br/>immutable detection-time evidence")]
+    ML -. secondary evidence .-> MA[("market_anomalies<br/>immutable · LIVE/DEMO scoped")]
+    CE --> TH["Thesis evaluation<br/>2-of-3 conditions, sustained"]
+    TH --> TE[("theses · thesis_events")]
+    CE --> DIG["Digest composition<br/>per-user, per-symbol watermarks"]
+    TE --> DIG
+    DIG --> UI["Home · Watchlist · Company detail · Digest"]
     CE --> UI
+    MA -. context only .-> UI
+    UI --> ASK["Ask THESIS<br/>explains stored evidence only"]
 ```
 
 The dotted edges matter: **nothing downstream of the deterministic engine reads the
