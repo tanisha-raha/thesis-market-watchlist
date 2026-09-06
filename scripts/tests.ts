@@ -31,7 +31,8 @@ import { MARKET_INDICES, indexValue, normalizeNews, bounded } from "@/lib/market
 import { replayThesis } from "@/lib/thesis-replay";
 import { getThesisReplay } from "@/lib/thesis-replay-server";
 import { priceInRange, breakoutConfirmed } from "@/lib/thesis-conditions";
-import { ADVICE_QUESTION, explainFinance, isThesisQuestion, boundedConversation } from "@/lib/finance-assistant";
+import { ADVICE_QUESTION, ADVICE_RESPONSE, explainFinance, generalExplanation, boundedConversation } from "@/lib/finance-assistant";
+import { classifyAsk } from "@/lib/ask-intent";
 import { cleanDisplayName, firstName, homeGreeting } from "@/lib/user-profile";
 import { recordedEvidence, signalLabel } from "@/lib/recorded-evidence";
 import { indexDisplayName } from "@/lib/market-brief";
@@ -662,7 +663,7 @@ section("Final product pass — market context, optional explanations, historica
   check("publisher RSS preserves headline/source/link/date", parseMarketNews(rss, now)[0]?.source === "The Economic Times" && parseMarketNews(rss, now)[0]?.title === "Original publisher headline");
   check("presentation provider failure is catchable independently", await bounded(Promise.reject(new Error("offline"))).then(() => false, () => true));
   check("presentation provider timeout is bounded", await bounded(new Promise(() => {}), 5).then(() => false, () => true));
-  check("general educational question routes separately from THESIS", !isThesisQuestion("What is a P/E ratio?") && isThesisQuestion("What changed while I was away?"));
+  check("general educational question routes separately from THESIS", classifyAsk("What is a P/E ratio?", []) === "GENERAL" && classifyAsk("What changed while I was away?", []) === "GROUNDED");
   check("investment questions reach a helpful advice boundary", ADVICE_QUESTION.test("Which stock should I invest in?") && ADVICE_QUESTION.test("Should I buy INFY?"));
   check("general provider is optional", (await explainFinance("What is beta?", [], { key: "" })).degraded);
   const fakeFetch = (async (_url: unknown, request?: RequestInit) => { const data = JSON.parse(request!.body as string); check("optional API disables storage and bounds response", data.store === false && data.max_output_tokens === 500 && !data.tools); return new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "A P/E ratio compares share price with earnings per share." }] }] })); }) as typeof fetch;
@@ -1230,6 +1231,98 @@ section("Navigation reads — consolidated, and still exact");
     (await searchSymbols("a")).length === 0);
   await db.delete(symbols).where(eq(symbols.symbol, "^TESTIDX"));
   await db.delete(users).where(eq(users.id, replayUser.id));
+}
+
+/* ------------------------------------------------------------------------- */
+section("Ask THESIS — intent routing, grounded answers and general education");
+{
+  // The nine prompts a user actually types, run through the real classifier and
+  // the real answer builders. No canned reply is matched anywhere below: every
+  // grounded answer is assembled from this context, and every general answer
+  // from the concept table, with no provider configured.
+  const watched = [
+    { symbol: "SBILIFE.NS", name: "SBI Life Insurance Company Limited" },
+    { symbol: "RELIANCE.NS", name: "Reliance Industries Limited" },
+  ];
+  const rows = watched.map((row) => ({
+    symbol: row.symbol, name: row.name,
+    security: describeSecurity({ symbol: row.symbol, name: row.name, exchange: "NSE", currency: "INR", timeZone: "Asia/Kolkata" }),
+    price: 1800, previousClose: 1750, changePercent: 2.9, asOf: new Date("2026-09-04T10:00:00Z"),
+    marketState: "CLOSED", addedAt: new Date("2026-08-01T04:00:00Z"), thesisState: "WATCHING", health: "healthy",
+  }));
+  const askContext = {
+    mode: "LIVE", currentSymbol: null, watchlist: rows,
+    theses: [
+      { symbol: "SBILIFE.NS", type: "breakout", state: "WATCHING", note: "Protection mix should re-rate the book.", params: { level: 1900 } },
+      { symbol: "RELIANCE.NS", type: "price_range", state: "TRIGGERED", note: "Only interesting after a retail markdown.", params: { low: 1200, high: 1300 } },
+    ],
+    digest: { awayFrom: null, cutoff: new Date(), sessionsInWindow: 3, marketClosedThroughout: false,
+      contradictions: [], triggers: [{ symbol: "RELIANCE.NS" }], missed: [], anomalies: [{ symbol: "SBILIFE.NS" }], unchanged: [] },
+    recentEvents: [{ symbol: "SBILIFE.NS", signalType: "large_move", occurredAt: new Date("2026-09-04T10:00:00Z"), resolvedAt: null,
+      evidence: [{ label: "Move", value: "2.6σ", basis: "vs 20-day realized volatility" }] }],
+    recentVerdicts: [],
+    anomalies: { "SBILIFE.NS": { symbol: "SBILIFE.NS", tradingDate: "2026-09-04", dataMode: "live", occurredAt: new Date(), status: "UNUSUAL",
+      score: 0.71, threshold: 0.68, modelVersion: "iforest-2026-09-a", features: { returnZ: 2.6, volumeRatio: 2.4 }, window: {}, evaluatedAt: new Date() } },
+    lastCompletedBatchAt: new Date("2026-09-04T10:05:00Z"),
+  } as unknown as AskContext;
+
+  const routing: [string, string][] = [
+    ["Why am I watching SBILIFE?", "GROUNDED"], ["What changed for SBILIFE?", "GROUNDED"], ["Explain my Reliance thesis", "GROUNDED"],
+    ["What is volatility?", "GENERAL"], ["What does beta mean?", "GENERAL"], ["What is a breakout?", "GENERAL"],
+    ["Which stock should I invest in?", "ADVISORY"], ["Should I buy Apple?", "ADVISORY"], ["Will SBILIFE go up tomorrow?", "ADVISORY"],
+  ];
+  check("every prompt routes to its own mode, including a company named with no product vocabulary",
+    routing.every(([question, expected]) => classifyAsk(question, rows) === expected),
+    routing.filter(([q, e]) => classifyAsk(q, rows) !== e).map(([q]) => q).join(" / "));
+
+  const why = answerFromContext("Why am I watching SBILIFE?", askContext).answer;
+  check("the reason for watching is the user's own recorded condition and note",
+    why.includes("Watching for a breakout") && why.includes("Protection mix should re-rate the book.") && why.includes("1,900.00"));
+  const changed = answerFromContext("What changed for SBILIFE?", askContext).answer;
+  check("a named company reports its own stored event rather than a global digest count",
+    changed.includes("SBILIFE.NS") && changed.includes("2.6σ") && !changed.includes("condition triggered"));
+  check("the anomaly layer stays secondary evidence inside a change answer",
+    changed.includes("secondary evidence, not a cause"));
+  const reliance = answerFromContext("Explain my Reliance thesis", askContext).answer;
+  check("a thesis question is answered even when the user says explain",
+    reliance.includes("Waiting for a dip") && reliance.includes("1,200.00 to ") && reliance.includes("triggered"));
+  const which = answerFromContext("Which of my watched stocks had meaningful changes?", askContext).answer;
+  check("a watchlist-wide question names the companies that changed",
+    which.includes("RELIANCE.NS — condition triggered") && which.includes("SBILIFE.NS — unusual session recorded"));
+  const pattern = answerFromContext("Why was this market pattern unusual?", { ...askContext, currentSymbol: "SBILIFE.NS" }).answer;
+  check("an anomaly answer reports the stored classification and its recorded inputs",
+    pattern.includes("2026-09-04") && pattern.includes("not causes it identified"));
+  const absent = answerFromContext("What changed for Reliance?", askContext).answer;
+  check("a company with nothing recorded is told so, not given someone else's event",
+    absent.includes("no detected event or thesis verdict recorded for RELIANCE.NS") && !absent.includes("2.6σ"));
+
+  const general = await Promise.all(["What is volatility?", "What does beta mean?", "What is a breakout?",
+    "How is relative volume calculated?", "What is the difference between market cap and enterprise value?"]
+    .map((question) => generalExplanation(question, [], { key: "" })));
+  check("general finance questions are answered with no provider configured",
+    general.every((reply) => reply.source === "builtin" && !reply.degraded && reply.answer.length > 120));
+  check("the not-connected fallback is gone from every general answer",
+    general.every((reply) => !/aren’t connected|not connected/i.test(reply.answer)));
+  check("built-in explanations use the definitions THESIS itself computes with",
+    general[0].answer.includes("20 daily log returns") && general[3].answer.includes("20-session median"));
+  check("a comparison question explains both concepts",
+    general[4].answer.includes("Market capitalisation") && general[4].answer.includes("Enterprise value"));
+  const unknown = await generalExplanation("What is the Sortino ratio?", [], { key: "" });
+  check("an unknown concept with no provider gets a useful offer, never an error card",
+    unknown.source === "none" && unknown.answer.includes("volatility") && !/unavailable|error/i.test(unknown.answer));
+  check("a configured model answers what the concept table does not hold", (await generalExplanation("What is the Sortino ratio?", [], {
+    key: "test-only",
+    fetcher: (async () => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "The Sortino ratio divides excess return by downside deviation." }] }] }))) as typeof fetch,
+  })).answer.includes("downside deviation"));
+  check("a general explanation never reaches for a user's holdings",
+    general.every((reply) => !reply.answer.includes("SBILIFE") && !reply.answer.includes("RELIANCE")));
+
+  for (const advisory of ["Which stock should I invest in?", "Should I buy Apple?", "Will SBILIFE go up tomorrow?"]) {
+    check(`advisory prompt is refused with a helpful alternative: ${advisory}`,
+      classifyAsk(advisory, rows) === "ADVISORY" && /can’t choose an investment/.test(ADVICE_RESPONSE) && /compare companies/.test(ADVICE_RESPONSE));
+  }
+  check("a mode selector cannot turn an advisory question into an answerable one",
+    classifyAsk("Should I buy Apple?", rows, "GENERAL") === "ADVISORY" && classifyAsk("Should I buy Apple?", rows, "THESIS DATA") === "ADVISORY");
 }
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);

@@ -9,10 +9,16 @@ const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(e.message));
 const sizes = [{ width: 1536, height: 864 }, { width: 1440, height: 900 }, { width: 1000, height: 800 }, { width: 390, height: 844 }];
 await mkdir(output, { recursive: true });
+/**
+ * Streamed sections must have arrived before anything is asserted or captured.
+ * Mid-stream, a boundary's content exists in React's staging container as well
+ * as in the page, so a locator can legitimately see it twice — and a screenshot
+ * of a placeholder is not a screenshot of the product.
+ */
+const settled = () => expect(page.locator(".is-loading,[data-navigation-loading]")).toHaveCount(0, { timeout: 30000 });
+
 async function shot(name: string) {
-  // Streamed sections must have arrived: a screenshot of a placeholder is not a
-  // screenshot of the product.
-  await expect(page.locator(".is-loading,[data-navigation-loading]")).toHaveCount(0, { timeout: 30000 });
+  await settled();
   await page.screenshot({ path: `${output}/${name}.png`, fullPage: true, animations: "disabled" });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error(`Overflow: ${name}`);
   console.log(`PASS layout ${name}`);
@@ -61,6 +67,7 @@ try {
       await theme(mode);
       for (const [name, path] of [["home", "/"], ["watchlist", "/watchlist"], ["digest", "/digest"], ["symbol", "/symbol/INFY.NS"], ["symbol-us", "/symbol/BLK"], ["company", "/symbol/MSFT"], ["ask", "/ask?symbol=INFY.NS"]]) {
         await page.goto(base + path); await expect(page.locator(".terminal")).toBeVisible();
+        await settled();
         await expect(page.locator("html")).toHaveAttribute("data-theme", mode);
         if (name !== "ask") await expect(page.locator(".chat-panel")).toHaveCount(0);
         if (name === "home") {
@@ -70,7 +77,14 @@ try {
           // Six cards, one height: the alignment is asserted, not eyeballed.
           if (new Set(heights).size !== 1) throw new Error(`Index cards misaligned: ${heights.join(",")}`);
         }
-        if (name === "symbol" || name === "symbol-us") await expect(page.locator("#thesis-replay")).toBeVisible();
+        // Scoped to the page content. React's streaming staging container sits
+        // outside <main> and holds a copy of a boundary for the instant before
+        // it is swapped in; an unscoped locator can catch both and Playwright
+        // does not retry a strict-mode violation.
+        if (name === "symbol" || name === "symbol-us") {
+          await expect(page.locator("main #thesis-replay")).toHaveCount(1);
+          await expect(page.locator("main #thesis-replay")).toBeVisible();
+        }
         // Recorded Evidence: tiles or a truthful empty state, never a wall of equal rows.
         if (name.startsWith("symbol") || name === "company") {
           const evidence = page.locator(".panel", { hasText: "Recorded Evidence" }).first();
@@ -89,7 +103,7 @@ try {
           if (!/Add to Watchlist/.test(body)) throw new Error("Unwatched company is missing its add call to action");
           if (!/Add this company to your watchlist/.test(body)) throw new Error("Unwatched company is missing its truthful thesis state");
           if (/TRIGGERED|CONTRADICTED|Keep watching/.test(body)) throw new Error("Unwatched company fabricated a thesis state");
-          if (await page.locator("#thesis-replay").count() !== 0) throw new Error("Replay shown for a company with no thesis");
+          if (await page.locator("main #thesis-replay").count() !== 0) throw new Error("Replay shown for a company with no thesis");
         }
         if (name === "watchlist") {
           const company = page.locator(".company-cell p").filter({ hasText: "Tata Consultancy" });

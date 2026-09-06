@@ -85,8 +85,17 @@ try {
   const empty = await ask("What changed while I was away?");
   check("THESIS data question is grounded", empty.category === "THESIS DATA" && /no new detected changes|THESIS found/.test(empty.answer));
   const general = await ask("What is a P/E ratio?");
-  check("general mode is separately labeled and has a truthful provider state", general.category === "GENERAL" && (general.degraded ? /aren’t connected|temporarily unavailable/.test(general.answer) : /earnings/i.test(general.answer)));
-  console.log(`GENERAL PROVIDER: ${general.degraded ? "UNAVAILABLE — not claiming open-ended Q&A verified" : "CONNECTED"}`);
+  check("a general finance question is answered, with or without a configured model",
+    general.category === "GENERAL" && /earnings/i.test(general.answer) && !/aren’t connected|not connected/i.test(general.answer));
+  console.log(`GENERAL SOURCE: ${general.source ?? "unknown"}`);
+  for (const [question, expect] of [["What is volatility?", /standard deviation/i], ["What does beta mean?", /index/i], ["What is a breakout?", /volume/i]] as [string, RegExp][]) {
+    const reply = await ask(question);
+    check(`general finance answer is useful: ${question}`, reply.category === "GENERAL" && expect.test(reply.answer) && reply.answer.length > 120);
+  }
+  for (const question of ["Should I buy Apple?", "Will SBILIFE go up tomorrow?"]) {
+    const refusal = await ask(question);
+    check(`advisory prompt is refused: ${question}`, refusal.category === "NON-ADVISORY" && /can’t choose an investment/.test(refusal.answer));
+  }
   const advice = await ask("Which stock should I invest in?");
   check("advice boundary offers helpful comparison instead", /can’t choose an investment/.test(advice.answer) && /compare companies/.test(advice.answer));
   await page.getByLabel("Ask THESIS a question").fill("First line"); await page.getByLabel("Ask THESIS a question").press("Shift+Enter");

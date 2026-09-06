@@ -135,9 +135,18 @@ size, the volume ratio, the stock-specific residual — stored immutably and ren
 as-is.
 
 ### Ask THESIS
-An authenticated explanation surface grounded in your stored context. It explains
-evidence and finance concepts, and refuses investment recommendations and price
-predictions.
+An authenticated explanation surface with three modes and a classifier that knows
+your watchlist, so *"Why am I watching SBILIFE?"* — a question with no product
+vocabulary in it at all — is recognised as being about your own records.
+
+- **YOUR EVIDENCE** — answered from stored state only: your watchlist, the condition
+  and note you saved, its deterministic verdict, detected events with the evidence
+  captured at detection, the anomaly classification and the replay.
+- **GENERAL EXPLANATION** — finance concepts, answered from a built-in concept table
+  that defines each term the way this engine actually measures it. `OPENAI_API_KEY`
+  is optional and extends coverage beyond the table; nothing here reads your data.
+- **NON-ADVISORY** — buy/sell/hold, stock picking and price predictions are declined
+  with an offer to compare recorded evidence instead.
 
 ---
 
@@ -406,7 +415,7 @@ Set the variables in `.env.local`:
 |---|---|---|
 | `DATABASE_URL` | **yes** | Postgres connection string (Neon pooled URL, or any Postgres). |
 | `CRON_SECRET` | for ingestion | Shared secret for `/api/ingest`. Without it the route refuses every request rather than failing open. |
-| `OPENAI_API_KEY` | optional | Enables Ask THESIS's *general finance education* answers only. Everything deterministic works without it. |
+| `OPENAI_API_KEY` | optional | Extends Ask THESIS's *general finance education* beyond its built-in concept table. Every mode, including general explanations, works without it. |
 | `OPENAI_MODEL` | optional | Defaults to `gpt-4.1-mini`. |
 | `THESIS_DATA_MODE` | optional | Set to `demo` for the deterministic DEMO REPLAY path. |
 | `SESSION_SECRET` | no | Legacy field kept in the template; current auth uses random opaque tokens and stores only their hashes. |
@@ -458,7 +467,7 @@ The suite is written around the promises the product makes, not around coverage:
 - **global support** — search, currency, exchange clocks and benchmarks across NSE/NASDAQ/NYSE
 - **cross-user isolation** — no user's context can widen to another user's data
 
-Latest verified run: **214 assertions passing**, **48 smoke checks**, **82 browser
+Latest verified run: **233 assertions passing**, **48 smoke checks**, **92 browser
 checks**, a clean production build, and the visual matrix passing across four viewports
 in both themes.
 

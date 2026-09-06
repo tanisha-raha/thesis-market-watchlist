@@ -1070,3 +1070,42 @@ warm production navigations reach their destination shell in 10–15 ms and usab
 content in 312–320 ms, against 1.1–7.8 seconds before. 214 test assertions, 48
 smoke checks, 82 browser checks, the visual matrix and a clean production build.
 See [the measurement report](docs/navigation-performance.md).
+
+## 2026-09-06 — Ask THESIS: route the question before answering it
+
+Ask THESIS was sending real questions to the wrong place. Routing was one keyword
+regex that had never seen the user's watchlist, so "Why am I watching SBILIFE?" —
+which contains none of the words on that list — was classified as general finance
+education, and general finance education was a single call to an optional provider
+that nobody had configured. The result was a product that answered a question about
+the user's own data with "General finance explanations aren't connected yet."
+
+Three intents now, and the classifier is given the watchlist. A question naming a
+company someone actually watches is a question about their records, whatever else
+the sentence says; a definition phrasing with no company and no first-person words
+is a concept question; and asking what to buy is refused first, before any mode
+selector can be consulted, because a dropdown is not consent to receive advice.
+
+General education answers from a concept table in the repository rather than from a
+required API. That is not a canned reply list: it is matched on concepts and their
+synonyms anywhere in a sentence, so several phrasings of the same question reach the
+same entry, and a term it does not hold goes to the configured model. It also fixes
+something a general model cannot — for the quantities this engine computes, the
+entry states how THESIS computes them, so a general explanation of relative volume
+cannot contradict the evidence tile beside it. A question with no entry and no
+configured model gets an offer of what can be explained, styled as an answer rather
+than as an error, because it is not a failure.
+
+Grounded answers were also wrong in ways nobody had noticed: "Explain my Reliance
+thesis" was excluded from the thesis branch for containing the word "explain" and
+fell through to a price line, and "What changed for SBILIFE?" returned a global
+digest count rather than that company's own records. Both are answered directly now,
+and a named company is answered from its own stored event, verdict and anomaly — or
+told plainly that nothing is recorded for it. No answer states a value that is not in
+stored data, no general explanation can reach a holding, and news still explains
+nothing, because THESIS holds no causal evidence.
+
+Verified end to end on an unpromoted deployment: nine prompts — three grounded, three
+educational, three advisory — each answered or refused correctly, labelled YOUR
+EVIDENCE, GENERAL EXPLANATION or NON-ADVISORY, with no error card shown. 233 test
+assertions, 48 smoke checks, 92 browser checks, the visual matrix and a clean build.

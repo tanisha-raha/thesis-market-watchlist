@@ -4,6 +4,19 @@ import { BrandMark, Icon } from "@/components/ui";
 
 type Message = { role: "assistant" | "user"; text: string; mode?: "LIVE" | "DEMO REPLAY"; category?: string; error?: boolean };
 
+/**
+ * What kind of answer this was, said plainly above it.
+ *
+ * The distinction matters more than the wording: a reader must be able to tell
+ * at a glance whether a paragraph came from their own recorded evidence or from
+ * a general explanation, because only one of them is a fact about their money.
+ */
+const LABELS: Record<string, string> = {
+  "THESIS DATA": "YOUR EVIDENCE",
+  GENERAL: "GENERAL EXPLANATION",
+  "NON-ADVISORY": "NON-ADVISORY",
+};
+
 /** Dedicated conversation over the unchanged authenticated explanation endpoint. */
 export function AskThesisChat({ currentSymbol, demo = false, userId }: { currentSymbol?: string; demo?: boolean; userId: number }) {
   const [question, setQuestion] = useState("");
@@ -35,7 +48,9 @@ export function AskThesisChat({ currentSymbol, demo = false, userId }: { current
       const payload = await response.json() as { answer?: string; mode?: "LIVE" | "DEMO REPLAY"; category?: string; error?: string; degraded?: boolean };
       if (!response.ok || !payload.answer) throw new Error(payload.error ?? "Ask THESIS is temporarily unavailable.");
       const answer = payload.answer;
-      setMessages((items) => [...items, { role: "assistant", text: answer, mode: payload.mode, category: payload.category, error: payload.degraded }]);
+      // An answered question is never an error, whatever produced the answer:
+      // only a request that did not come back is styled as one, below.
+      setMessages((items) => [...items, { role: "assistant", text: answer, mode: payload.mode, category: payload.category }]);
     } catch {
       setMessages((items) => [...items, { role: "assistant", error: true, text: "Ask THESIS is temporarily unavailable. Please try again. Your watchlist and digest are unchanged." }]);
     } finally { clearTimeout(timeout); setLoading(false); }
@@ -48,11 +63,11 @@ export function AskThesisChat({ currentSymbol, demo = false, userId }: { current
         <div className="chat-greeting"><span className="text-ink font-medium">A little context goes a long way.</span><p>Understand your watchlist and conditions, explore recorded evidence, or learn a finance concept.</p></div>
         <p className="eyebrow mt-6 mb-3">START WITH A QUESTION</p>
         <div className="chat-prompts">{examples.map((example, index) => <button type="button" key={example} onClick={() => void ask(example)}><span><small className="eyebrow">{["YOUR WATCHLIST", "YOUR THESIS", "UNDERSTAND THE EVIDENCE", "LEARN"][index]}</small>{example}</span><Icon name="arrow" size={13} /></button>)}</div>
-        <div className="chat-grounding"><Icon name="shield" size={16} /><p>THESIS DATA uses your stored evidence.<br />GENERAL offers optional finance education.</p></div>
-      </> : messages.map((message, index) => <article key={index} className={`chat-message ${message.role} ${message.error ? "error" : ""}`}><p className="eyebrow mb-1">{message.role === "user" ? "YOU" : message.category ?? "ASK THESIS"}{message.mode === "DEMO REPLAY" && " · DEMO REPLAY"}</p><p>{message.text}</p></article>)}
+        <div className="chat-grounding"><Icon name="shield" size={16} /><p>THESIS DATA answers from your stored evidence.<br />GENERAL explains finance concepts, and never your holdings.</p></div>
+      </> : messages.map((message, index) => <article key={index} className={`chat-message ${message.role} ${message.error ? "error" : ""}`}><p className="eyebrow mb-1">{message.role === "user" ? "YOU" : (message.category && LABELS[message.category]) ?? "ASK THESIS"}{message.mode === "DEMO REPLAY" && " · DEMO REPLAY"}</p><p>{message.text}</p></article>)}
       {loading && <p className="chat-loading" role="status"><span />Preparing your explanation…</p>}
     </div>
-    <form onSubmit={submit} className="chat-composer"><div><label htmlFor="ask-thesis-input" className="sr-only">Ask THESIS a question</label><textarea ref={input} id="ask-thesis-input" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void ask(question); } }} maxLength={800} rows={2} placeholder={currentSymbol ? `Ask about ${currentSymbol} or finance…` : "Ask about your watchlist or finance…"} /><button type="submit" aria-label="Send" disabled={loading || !question.trim()}><Icon name="send" size={18} /></button></div><p>Enter to send · Shift+Enter for a new line · AI explains. THESIS decides.</p></form>
+    <form onSubmit={submit} className="chat-composer"><div><label htmlFor="ask-thesis-input" className="sr-only">Ask THESIS a question</label><textarea ref={input} id="ask-thesis-input" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void ask(question); } }} maxLength={800} rows={2} placeholder={currentSymbol ? `Ask about ${currentSymbol} or finance…` : "Ask about your watchlist or finance…"} /><button type="submit" aria-label="Send" disabled={loading || !question.trim()}><Icon name="send" size={18} /></button></div><p>Enter to send · Shift+Enter for a new line · Explanations are general. THESIS decides what changed.</p></form>
   </section>;
   return content;
 }
