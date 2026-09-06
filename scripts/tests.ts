@@ -63,7 +63,7 @@ import { exchangeDate, formatExchangeTime, zonedInstant } from "@/lib/time";
 import { evidenceFrom } from "@/lib/digest";
 import { watchlistFeed } from "@/components/ui";
 import { searchLocalCatalogue, searchSymbols, type WatchlistRow } from "@/lib/watchlist";
-import { fetchMarketNews, parseMarketNews } from "@/lib/market-news";
+import { NEWS_SOURCES, fetchMarketNews, parseMarketNews } from "@/lib/market-news";
 import { recordDigestReceipt } from "@/lib/digest-receipt";
 import { lastCommittedBatchAt } from "@/lib/ingestion";
 
@@ -670,6 +670,28 @@ section("Final product pass — market context, optional explanations, historica
   check("RSS rejects entity declarations and malformed payload", parseMarketNews('<!DOCTYPE x [<!ENTITY x "y">]><rss/>').length === 0 && parseMarketNews("not XML").length === 0);
   const rss = `<rss><channel><item><title><![CDATA[Original publisher headline]]></title><link>https://economictimes.indiatimes.com/markets/test.cms</link><pubDate>${now.toUTCString()}</pubDate></item></channel></rss>`;
   check("publisher RSS preserves headline/source/link/date", parseMarketNews(rss, now)[0]?.source === "The Economic Times" && parseMarketNews(rss, now)[0]?.title === "Original publisher headline");
+  // A publisher that refuses the request must not empty the card while another
+  // legitimate feed is answering.
+  {
+    const mintItem = `<rss><channel><item><title><![CDATA[Mint markets headline &amp; more]]></title><link><![CDATA[https://www.livemint.com/market/stock-market-news/x.html]]></link><pubDate>${now.toUTCString()}</pubDate></item></channel></rss>`;
+    const chain = (async (url: unknown) => {
+      const target = String(url);
+      if (target.includes("economictimes")) return new Response("blocked", { status: 403 });
+      if (target.includes("livemint")) return new Response(mintItem, { status: 200 });
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const recovered = await fetchMarketNews(chain);
+    check("a blocked publisher falls through to the next legitimate feed",
+      recovered.length === 1 && recovered[0].source === "Mint" && recovered[0].url.startsWith("https://www.livemint.com/"));
+    check("XML escapes are decoded, so a headline is never shown as its escape",
+      recovered[0].title === "Mint markets headline & more");
+    const allDown = (async () => new Response("", { status: 503 })) as typeof fetch;
+    check("every source failing still yields the truthful empty state, never filler",
+      (await fetchMarketNews(allDown)).length === 0);
+    const impostor = `<rss><channel><item><title><![CDATA[Someone else's story]]></title><link><![CDATA[https://not-the-publisher.example/x]]></link><pubDate>${now.toUTCString()}</pubDate></item></channel></rss>`;
+    check("a feed cannot put another host's link under a publisher's name",
+      parseMarketNews(impostor, now, NEWS_SOURCES[1]).length === 0);
+  }
   check("presentation provider failure is catchable independently", await bounded(Promise.reject(new Error("offline"))).then(() => false, () => true));
   check("presentation provider timeout is bounded", await bounded(new Promise(() => {}), 5).then(() => false, () => true));
   check("general educational question routes separately from THESIS", classifyAsk("What is a P/E ratio?", []) === "GENERAL" && classifyAsk("What changed while I was away?", []) === "GROUNDED_THESIS");

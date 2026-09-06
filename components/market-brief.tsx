@@ -191,6 +191,8 @@ export function MarketBriefing({ news }: { news: NewsItem[] }) {
           <Icon name="arrow" size={16} />
         </a>)}</div>
       : <EmptyState title="Market briefing is unavailable right now." description="Current headlines could not be retrieved. Your watchlist, detection and digest are unaffected." />}
-    <p className="panel-caption">Headlines from The Economic Times — Indian market coverage, not comprehensive global news. Context only: never an explanation of an individual price move, and never an input to THESIS decisions.</p>
+    {/* The publisher is whichever feed actually answered, so the caption cannot
+        credit one paper for another's reporting. */}
+    <p className="panel-caption">Headlines from {[...new Set(news.map((item) => item.source))].join(", ") || "the publishers' own feeds"} — Indian market coverage, not comprehensive global news. Context only: never an explanation of an individual price move, and never an input to THESIS decisions.</p>
   </DashboardCard>;
 }
