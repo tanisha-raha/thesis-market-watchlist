@@ -90,7 +90,10 @@ the chains were the reason one page cost several times another. Counting the
 | Watchlist / Home | 2 | 2 |
 | Digest | 2 | 2 |
 | Watched Symbol Detail | 8 | 3 |
-| Unwatched company (search) | 5 + provider quote | 2 + provider quote |
+| Unwatched company (search) | 4 + provider quote | 3 + provider quote |
+
+Counted as stages a navigation *blocks* on: a streamed section's own reads happen
+after the page has been sent, so they are not in these numbers.
 
 - `getThesisReplay` chained membership → pending corporate action → exchange
   metadata → bars. Only the membership check gates the rest, so the other three
