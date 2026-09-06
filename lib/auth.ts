@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { cookies } from "next/headers";
@@ -65,7 +66,7 @@ export async function createSession(userId: number): Promise<void> {
 
 export type SessionUser = { id: number; email: string; displayName: string | null };
 
-export async function getSessionUser(): Promise<SessionUser | null> {
+export const getSessionUser = cache(async function getSessionUser(): Promise<SessionUser | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
@@ -77,7 +78,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     .limit(1);
 
   return rows[0] ?? null;
-}
+});
 
 export async function destroySession(): Promise<void> {
   const jar = await cookies();

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -11,6 +12,7 @@ import { describeSecurity, formatMoney, type Security } from "@/lib/securities";
 import { indexDisplayName } from "@/lib/market-brief";
 import { getUnusualSessions } from "@/lib/ml/anomaly-server";
 import { exchangeDate, istDate } from "@/lib/time";
+import { traced } from "@/lib/trace";
 import type { Bar } from "@/lib/market/types";
 
 /**
@@ -303,10 +305,12 @@ const SIGNAL_HEADLINES: Record<string, string> = {
 
 /* ------------------------------------------------------------- the digest */
 
-export async function getDigest(userId: number): Promise<Digest> {
-  const cutoff = (await lastCommittedBatchAt()) ?? new Date();
-
-  const items = await db
+export const getDigest = cache(async function getDigest(userId: number): Promise<Digest> {
+  // Two independent reads, so two round trips became one wait. The cutoff does
+  // not depend on the watchlist and the watchlist does not depend on the cutoff.
+  const [committedAt, items] = await Promise.all([
+    traced("digest:lastBatch", () => lastCommittedBatchAt()),
+    traced("digest:items", () => db
     .select({
       itemId: watchlistItems.id,
       symbol: watchlistItems.symbol,
@@ -329,7 +333,9 @@ export async function getDigest(userId: number): Promise<Digest> {
       and(eq(userSymbolReadState.userId, userId), eq(userSymbolReadState.symbol, watchlistItems.symbol)),
     )
     .where(eq(watchlistItems.userId, userId))
-    .orderBy(asc(watchlistItems.createdAt));
+    .orderBy(asc(watchlistItems.createdAt))),
+  ]);
+  const cutoff = committedAt ?? new Date();
 
   const empty: Digest = {
     awayFrom: null, cutoff, sessionsInWindow: 0, marketClosedThroughout: false,
@@ -349,13 +355,38 @@ export async function getDigest(userId: number): Promise<Digest> {
   const awayFrom = new Date(Math.min(...items.map((i) => (watermarkFor.get(i.symbol) ?? i.addedAt).getTime())));
   const symbolList = items.map((i) => i.symbol);
 
-  const bars = await db
-    .select({
-      symbol: priceBars.symbol, date: priceBars.tradingDate,
-      close: priceBars.currentProviderClose, adjClose: priceBars.currentProviderAdjClose,
-      volume: priceBars.currentProviderVolume,
-    })
-    .from(priceBars).where(inArray(priceBars.symbol, symbolList));
+  // Everything below needs only the watched symbols and the away-window, so the
+  // four reads issue together. Sequentially this was four round trips on top of
+  // each other; against a remote database that is the difference a user feels.
+  const thesisIds = items.map((i) => i.thesisId).filter((id): id is number => id != null);
+  const [bars, unusual, tEvents, cEvents] = await Promise.all([
+    traced("digest:bars", () => db
+      .select({
+        symbol: priceBars.symbol, date: priceBars.tradingDate,
+        close: priceBars.currentProviderClose, adjClose: priceBars.currentProviderAdjClose,
+        volume: priceBars.currentProviderVolume,
+      })
+      .from(priceBars).where(inArray(priceBars.symbol, symbolList))),
+    // Secondary evidence, and allowed to fail: the digest is a deterministic
+    // product and must render identically without it.
+    traced("digest:anomalies", () => getUnusualSessions(symbolList, istDate(new Date(awayFrom.getTime() - 3 * 864e5)))
+      .catch(() => new Map<string, import("@/lib/ml/anomaly-server").StoredAnomaly>())),
+    thesisIds.length
+      ? traced("digest:thesisEvents", () => db.select().from(thesisEvents)
+          .where(and(inArray(thesisEvents.thesisId, thesisIds), gte(thesisEvents.occurredAt, awayFrom)))
+          .orderBy(desc(thesisEvents.occurredAt)))
+      : Promise.resolve([] as (typeof thesisEvents.$inferSelect)[]),
+    traced("digest:changeEvents", () => db
+      .select().from(changeEvents)
+      .where(and(
+        inArray(changeEvents.symbol, symbolList),
+        gte(changeEvents.occurredAt, awayFrom),
+        lte(changeEvents.occurredAt, cutoff),
+      ))
+      .orderBy(desc(changeEvents.score))),
+  ]);
+  const flagged = (symbol: string, at: Date, security: Security) =>
+    unusual.has(`${symbol}|${exchangeDate(at, security.timeZone)}`) || undefined;
 
   const closeByKey = new Map<string, number>();
   const barsBySymbol = new Map<string, Bar[]>();
@@ -381,26 +412,12 @@ export async function getDigest(userId: number): Promise<Digest> {
   // not an input to any verdict. Nothing downstream branches on it, so an
   // Indian-holiday/US-session edge date shifts a count by one rather than
   // changing what the digest reports.
-  // Secondary evidence, fetched last and allowed to fail: the digest is a
-  // deterministic product and must render identically without it.
-  const unusual = await getUnusualSessions(symbolList, istDate(new Date(awayFrom.getTime() - 3 * 864e5)))
-    .catch(() => new Map<string, import("@/lib/ml/anomaly-server").StoredAnomaly>());
-  const flagged = (symbol: string, at: Date, security: Security) =>
-    unusual.has(`${symbol}|${exchangeDate(at, security.timeZone)}`) || undefined;
-
   const calendar = deriveTradingCalendar([...barsBySymbol.values()]);
   const fromDate = istDate(awayFrom);
   const untilDate = istDate(cutoff);
   const sessionsInWindow = [...calendar].filter((d) => d > fromDate && d <= untilDate).length;
 
   /* ---- 1. contradictions, 2. triggers ---------------------------------- */
-
-  const thesisIds = items.map((i) => i.thesisId).filter((id): id is number => id != null);
-  const tEvents = thesisIds.length
-    ? await db.select().from(thesisEvents)
-        .where(and(inArray(thesisEvents.thesisId, thesisIds), gte(thesisEvents.occurredAt, awayFrom)))
-        .orderBy(desc(thesisEvents.occurredAt))
-    : [];
 
   const itemByThesis = new Map(items.filter((i) => i.thesisId).map((i) => [i.thesisId!, i]));
   const contradictions: ContradictionCard[] = [];
@@ -463,15 +480,6 @@ export async function getDigest(userId: number): Promise<Digest> {
   }
 
   /* ---- 3. missed events, 4. anomalies ---------------------------------- */
-
-  const cEvents = await db
-    .select().from(changeEvents)
-    .where(and(
-      inArray(changeEvents.symbol, symbolList),
-      gte(changeEvents.occurredAt, awayFrom),
-      lte(changeEvents.occurredAt, cutoff),
-    ))
-    .orderBy(desc(changeEvents.score));
 
   // Collected first, ranked second, capped third. Capping during collection let
   // a higher-scoring event take a symbol's only slot before the one that is
@@ -582,7 +590,7 @@ export async function getDigest(userId: number): Promise<Digest> {
     anomalies,
     unchanged,
   };
-}
+});
 
 function promptFor(type: string): string {
   return {

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
@@ -18,12 +19,14 @@ import { AppShell } from "@/components/app-shell";
 import { DashboardCard, EmptyState, Icon, CompanyMark, formatPrice, FreshnessBadge, PriceChange, StatusBadge } from "@/components/ui";
 import { ThesisCard } from "@/components/dashboard-widgets";
 import { SymbolChart } from "@/components/symbol-chart";
+import { PriceHistorySection, PriceHistorySkeleton, MarketDataSection, MarketDataSkeleton } from "@/components/company-sections";
 import { AddToWatchlistButton } from "@/components/workspace-controls";
 import { ThesisReplay } from "@/components/thesis-replay";
 import { getThesisReplay } from "@/lib/thesis-replay-server";
 import { MarketPattern } from "@/components/market-pattern";
 import { RecordedEvidence } from "@/components/recorded-evidence";
 import { getLatestAnomaly } from "@/lib/ml/anomaly-server";
+import { traceRoute, traced } from "@/lib/trace";
 
 /**
  * Company detail — for any supported security, watched or not.
@@ -37,10 +40,11 @@ import { getLatestAnomaly } from "@/lib/ml/anomaly-server";
  */
 export const dynamic = "force-dynamic";
 export default async function SymbolPage({ params }: { params: Promise<{ symbol: string }> }) {
-  const user = await getSessionUser();
+  const done = traceRoute("symbol");
+  const user = await traced("symbol:session", () => getSessionUser());
   if (!user) redirect("/login");
   const { symbol: raw } = await params;
-  const company = await getCompanyView(user.id, decodeURIComponent(raw));
+  const company = await traced("symbol:companyView", () => getCompanyView(user.id, decodeURIComponent(raw)));
   if (!company) notFound();
   const { symbol, security, quote, stats } = company;
 
@@ -55,15 +59,16 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
     : [undefined];
 
   const [events, verdicts, rows, replay, anomaly] = await Promise.all([
-    db.select().from(changeEvents).where(eq(changeEvents.symbol, symbol)).orderBy(desc(changeEvents.occurredAt)).limit(12),
-    item?.thesisId
+    traced("symbol:events", () => db.select().from(changeEvents).where(eq(changeEvents.symbol, symbol)).orderBy(desc(changeEvents.occurredAt)).limit(12)),
+    traced("symbol:verdicts", () => item?.thesisId
       ? db.select().from(thesisEvents).where(eq(thesisEvents.thesisId, item.thesisId)).orderBy(desc(thesisEvents.occurredAt)).limit(6)
-      : Promise.resolve([]),
-    getWatchlist(user.id),
-    company.watched ? getThesisReplay(user.id, symbol) : Promise.resolve(null),
+      : Promise.resolve([])),
+    traced("symbol:watchlist", () => getWatchlist(user.id)),
+    traced("symbol:replay", () => company.watched ? getThesisReplay(user.id, symbol) : Promise.resolve(null)),
     // Read-only: the evidence recorded when the model ran, never a fit per render.
-    getLatestAnomaly(symbol).catch(() => null),
+    traced("symbol:anomaly", () => getLatestAnomaly(symbol).catch(() => null)),
   ]);
+  done();
 
   const money = (value: number | null) => formatPrice(value, security.currency);
   const at = (value: Date) => formatExchangeTime(value, security.timeZone);
@@ -118,9 +123,15 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
     </header>
 
     <div className="symbol-grid">
-      <DashboardCard title="Price History" action={<span className="status-badge neutral">{company.historySource === "lookup" ? "LIVE LOOKUP" : "OBSERVED"}</span>}>
-        <SymbolChart daily={company.daily} intraday={company.intraday} exchange={security.exchange} timeZone={security.timeZone} source={company.historySource} />
-      </DashboardCard>
+      {company.historySource === "stored"
+        ? <DashboardCard title="Price History" action={<span className="status-badge neutral">OBSERVED</span>}>
+            <SymbolChart daily={company.daily} intraday={company.intraday} exchange={security.exchange} timeZone={security.timeZone} source="stored" />
+          </DashboardCard>
+        // Nothing is watched here yet, so the bars come from the provider. That
+        // request streams rather than holding up the whole page.
+        : <Suspense fallback={<PriceHistorySkeleton />}>
+            <PriceHistorySection symbol={symbol} intraday={company.intraday} exchange={security.exchange} timeZone={security.timeZone} />
+          </Suspense>}
       {company.watched
         ? <ThesisCard thesis={thesis} company={company.name} currency={security.currency} timeZone={security.timeZone}>
             {item?.paramsAdjustedAt && adjustments.map((a, i) => <div className="adjustment-note" key={i}><strong>Adjusted for a corporate action</strong><p className="mt-1">{a.reason} · {a.factor}× · {a.affectedFrom} to {a.affectedTo}</p>{Object.keys(a.before).map((key) => <p key={key}>{key}: <s>{money(a.before[key])}</s> → {money(a.after[key])}</p>)}</div>)}
@@ -140,11 +151,15 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
     {company.watched && <ThesisReplay result={replay} demo={demo} exchange={security.exchange} />}
 
     <div className="two-column mt-4">
-      <DashboardCard title="Market Data" action={<span className="eyebrow">{company.latestBar ? `SESSION ${company.latestBar.date}` : "LATEST QUOTE"}</span>}>
-        {sessionRows.length
-          ? <div className="panel-body"><Evidence entries={sessionRows} /></div>
-          : <EmptyState title="No session data available yet" description="Open, volume and reference levels appear once usable history has been observed for this company." />}
-      </DashboardCard>
+      {company.historySource === "stored"
+        ? <DashboardCard title="Market Data" action={<span className="eyebrow">{company.latestBar ? `SESSION ${company.latestBar.date}` : "LATEST QUOTE"}</span>}>
+            {sessionRows.length
+              ? <div className="panel-body"><Evidence entries={sessionRows} /></div>
+              : <EmptyState title="No session data available yet" description="Open, volume and reference levels appear once usable history has been observed for this company." />}
+          </DashboardCard>
+        : <Suspense fallback={<MarketDataSkeleton />}>
+            <MarketDataSection symbol={symbol} currency={security.currency} previousClose={quote.previousClose} stats={stats} />
+          </Suspense>}
       <DashboardCard title="Reference Levels" action={<span className="eyebrow">ADJUSTED SERIES</span>}>
         {stats ? <><div className="panel-body"><Evidence entries={[
           { label: "52-week high", value: money(stats.high52w), basis: "adjusted closes" },

@@ -1,18 +1,19 @@
 import "server-only";
+import { cache } from "react";
 import { and, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { changeEvents, priceBars, theses, thesisEvents, watchlistItems } from "@/db/schema";
 import { evidenceFrom } from "@/lib/digest";
 
 /** Read-only presentation queries. No fetches, inference, or ingestion here. */
-export async function getPresentationData(userId: number) {
+export const getPresentationData = cache(async function getPresentationData(userId: number) {
   const thesisRows = await db
     .select({ symbol: watchlistItems.symbol, id: theses.id, type: theses.type, state: theses.state,
       params: theses.paramsJson, note: theses.note, createdAt: theses.createdAt })
     .from(watchlistItems).innerJoin(theses, eq(theses.watchlistItemId, watchlistItems.id))
     .where(eq(watchlistItems.userId, userId));
   return { theses: thesisRows, demo: process.env.THESIS_DATA_MODE === "demo" };
-}
+});
 export type StoredThesis = Awaited<ReturnType<typeof getPresentationData>>["theses"][number];
 export type HistoryPoint = { date: string; close: number };
 /** Featured evidence is stored history, not restricted to the unread digest window. */

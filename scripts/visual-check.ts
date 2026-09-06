@@ -10,6 +10,9 @@ page.on("pageerror", (e) => errors.push(e.message));
 const sizes = [{ width: 1536, height: 864 }, { width: 1440, height: 900 }, { width: 1000, height: 800 }, { width: 390, height: 844 }];
 await mkdir(output, { recursive: true });
 async function shot(name: string) {
+  // Streamed sections must have arrived: a screenshot of a placeholder is not a
+  // screenshot of the product.
+  await expect(page.locator(".is-loading")).toHaveCount(0, { timeout: 30000 });
   await page.screenshot({ path: `${output}/${name}.png`, fullPage: true, animations: "disabled" });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error(`Overflow: ${name}`);
   console.log(`PASS layout ${name}`);

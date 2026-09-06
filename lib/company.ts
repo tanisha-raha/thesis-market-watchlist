@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { and, asc, desc, eq, gt, gte, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -10,6 +11,7 @@ import { describeSecurity, type Security } from "@/lib/securities";
 import type { HistoryPoint } from "@/lib/presentation";
 import type { IntradayPoint } from "@/lib/chart-ranges";
 import type { Bar } from "@/lib/market/types";
+import { traced } from "@/lib/trace";
 
 /**
  * Company lookup — the read behind the symbol page.
@@ -49,9 +51,12 @@ export function normalizeSymbol(raw: string): string | null {
  */
 type CachedQuote = { symbol: string; price: number; previousClose: number | null; asOf: string; marketState: string | null; currency: string | null; name: string | null; exchange: string | null; timeZone: string | null };
 
+/** The same interactive budget the market brief uses; see lib/market-brief-server.ts. */
+const INTERACTIVE_TIMEOUT_MS = 3000;
+
 const lookupQuote = unstable_cache(async (symbol: string): Promise<CachedQuote | null> => {
   try {
-    const { quotes: found } = await bounded(liveProvider.getQuotes([symbol]));
+    const { quotes: found } = await bounded(liveProvider.getQuotes([symbol]), INTERACTIVE_TIMEOUT_MS);
     const quote = found[0];
     return quote ? { ...quote, asOf: quote.asOf.toISOString() } : null;
   } catch { return null; }
@@ -65,7 +70,7 @@ function hydrate(quote: CachedQuote | null) {
 }
 
 const lookupHistory = unstable_cache(async (symbol: string): Promise<Bar[]> => {
-  try { return await bounded(liveProvider.getDailyBars(symbol, 400)); }
+  try { return await bounded(liveProvider.getDailyBars(symbol, 400), INTERACTIVE_TIMEOUT_MS); }
   catch { return []; }
 }, ["company-lookup-history-v1"], { revalidate: 900 });
 
@@ -126,21 +131,42 @@ const INTRADAY_DAYS = 7;
 const INTRADAY_LIMIT = 1500;
 const DAILY_SESSIONS = 260;
 
+/**
+ * Provider history for a company nobody watches, fetched OFF the navigation path.
+ *
+ * Memoised per request so the chart and the market-data panel — two Suspense
+ * boundaries needing the same bars — make one provider request between them.
+ */
+export const getLookupHistory = cache(async (symbol: string): Promise<{ daily: HistoryPoint[]; latestBar: SessionBar | null }> => {
+  const bars = await traced("company:providerHistory", () => lookupHistory(symbol));
+  const daily = bars.flatMap((bar) => {
+    const value = bar.adjClose ?? bar.close;
+    return value != null && Number.isFinite(value) && value > 0 && bar.volume != null && bar.volume > 0
+      ? [{ date: bar.date, close: value }]
+      : [];
+  });
+  const last = bars.at(-1);
+  return {
+    daily,
+    latestBar: last ? { date: last.date, open: last.open, high: last.high, low: last.low, close: last.close, volume: last.volume } : null,
+  };
+});
+
 export async function getCompanyView(userId: number, rawSymbol: string): Promise<CompanyView | null> {
   const symbol = normalizeSymbol(rawSymbol);
   if (!symbol) return null;
 
-  const [[tracked], [item], [storedQuote], [statsRow]] = await Promise.all([
+  const [[tracked], [item], [storedQuote], [statsRow]] = await traced("company:coreQueries", () => Promise.all([
     db.select().from(symbols).where(eq(symbols.symbol, symbol)).limit(1),
     db.select({ id: watchlistItems.id }).from(watchlistItems)
       .where(and(eq(watchlistItems.userId, userId), eq(watchlistItems.symbol, symbol))).limit(1),
     db.select().from(quotes).where(eq(quotes.symbol, symbol)).limit(1),
     db.select().from(symbolStats).where(eq(symbolStats.symbol, symbol)).limit(1),
-  ]);
+  ]));
 
   // Never seen before: one bounded lookup decides whether this is a real security
   // at all. An unresolvable ticker is a 404, not an empty page pretending to be one.
-  const lookup = tracked ? null : hydrate(await lookupQuote(symbol));
+  const lookup = tracked ? null : hydrate(await traced("company:providerQuote", () => lookupQuote(symbol)));
   if (!tracked && !lookup) return null;
 
   const security = describeSecurity({
@@ -152,7 +178,7 @@ export async function getCompanyView(userId: number, rawSymbol: string): Promise
   });
 
   const close = sql<string>`coalesce(${priceBars.currentProviderAdjClose}, ${priceBars.currentProviderClose})`;
-  const [storedBars, observations] = await Promise.all([
+  const [storedBars, observations] = await traced("company:historyQueries", () => Promise.all([
     tracked
       ? db.select({
           date: priceBars.tradingDate, close,
@@ -168,7 +194,7 @@ export async function getCompanyView(userId: number, rawSymbol: string): Promise
         .where(and(eq(quoteObservations.symbol, symbol), gte(quoteObservations.asOf, new Date(Date.now() - INTRADAY_DAYS * 864e5))))
         .orderBy(asc(quoteObservations.asOf)).limit(INTRADAY_LIMIT)
       : Promise.resolve([]),
-  ]);
+  ]));
 
   const stored = storedBars.reverse();
   const daily: HistoryPoint[] = stored.flatMap((bar) => {
@@ -176,27 +202,14 @@ export async function getCompanyView(userId: number, rawSymbol: string): Promise
     return value == null ? [] : [{ date: bar.date, close: value }];
   });
 
-  // Stored history first; the provider only when we hold none at all.
-  const providerBars = daily.length >= 2 ? [] : await lookupHistory(symbol);
-  const lookupDaily: HistoryPoint[] = providerBars.flatMap((bar) => {
-    const value = bar.adjClose ?? bar.close;
-    return value != null && Number.isFinite(value) && value > 0 && bar.volume != null && bar.volume > 0
-      ? [{ date: bar.date, close: value }]
-      : [];
-  });
-
   const usingStored = daily.length >= 2;
-  const history = usingStored ? daily : lookupDaily;
 
   const lastStored = stored.at(-1);
-  const lastProvider = providerBars.at(-1);
   const latestBar: SessionBar | null = usingStored && lastStored
     // Stored bars carry no high or low — the schema never claimed them — so those
     // stay null and the panel omits them rather than inventing a day's range.
     ? { date: lastStored.date, open: num(lastStored.open), high: null, low: null, close: num(lastStored.raw), volume: num(lastStored.volume) }
-    : lastProvider
-      ? { date: lastProvider.date, open: lastProvider.open, high: lastProvider.high, low: lastProvider.low, close: lastProvider.close, volume: lastProvider.volume }
-      : null;
+    : null;
 
   const price = storedQuote ? num(storedQuote.price) : lookup?.price ?? null;
   const previousClose = storedQuote ? num(storedQuote.previousClose) : lookup?.previousClose ?? null;
@@ -218,8 +231,10 @@ export async function getCompanyView(userId: number, rawSymbol: string): Promise
     },
     quoteSource: storedQuote ? "stored" : lookup ? "lookup" : "none",
     health: classify(tracked?.consecutiveFeedMisses ?? 0),
-    daily: history,
-    historySource: usingStored ? "stored" : lookupDaily.length >= 2 ? "lookup" : "none",
+    daily: usingStored ? daily : [],
+    // "lookup" means the provider is the source and the page will stream it in;
+    // nothing about the rendered values changes, only when they arrive.
+    historySource: usingStored ? "stored" : "lookup",
     intraday: observations.map((row) => ({ at: row.at.toISOString(), price: Number(row.price) }))
       .filter((point) => Number.isFinite(point.price) && point.price > 0),
     latestBar,

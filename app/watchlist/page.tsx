@@ -7,12 +7,18 @@ import { AppShell } from "@/components/app-shell";
 import { DashboardCard } from "@/components/ui";
 import { AddStockButton } from "@/components/workspace-controls";
 import { thesisCondition } from "@/lib/thesis-display";
+import { traceRoute, traced } from "@/lib/trace";
 
 export const dynamic = "force-dynamic";
 export default async function WatchlistPage() {
-  const user = await getSessionUser();
+  const done = traceRoute("watchlist");
+  const user = await traced("watchlist:session", () => getSessionUser());
   if (!user) redirect("/login");
-  const [rows, presentation] = await Promise.all([getWatchlist(user.id), getPresentationData(user.id)]);
+  const [rows, presentation] = await Promise.all([
+    traced("watchlist:watchlist", () => getWatchlist(user.id)),
+    traced("watchlist:presentation", () => getPresentationData(user.id)),
+  ]);
+  done();
   const currencyFor = new Map(rows.map((row) => [row.symbol, row.security.currency]));
   const conditions = Object.fromEntries(presentation.theses.map((t) => [t.symbol, thesisCondition(t.type, t.params, currencyFor.get(t.symbol) ?? null)]));
   // A watchlist can hold several markets at once. Say which, rather than

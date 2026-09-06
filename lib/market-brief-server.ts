@@ -9,10 +9,23 @@ import { fetchMarketNews } from "@/lib/market-news";
 import { REGIONS, REGION_ORDER, type MarketRegion } from "@/lib/securities";
 import type { HistoryPoint } from "@/lib/presentation";
 import type { Quote } from "@/lib/market/types";
+import { traced } from "@/lib/trace";
+
+/**
+ * How long an interactive page will wait on the provider before giving up.
+ *
+ * Deliberately shorter than the ingestion path's budget. This request is between
+ * a person and a screen, and the product already has a better answer than a
+ * spinner: the last committed quote, rendered with its own freshness label. Yahoo
+ * has been measured at over 2.8s cold from a residential connection and throttles
+ * datacenter IPs harder, so waiting the full budget would mean showing nothing
+ * while a perfectly good stored value sat in the database.
+ */
+const INTERACTIVE_TIMEOUT_MS = 3000;
 
 // Public context only: never cache a user's digest, identity, or watchlist.
 const fetchIndices = unstable_cache(async () => {
-  try { return (await bounded(liveProvider.getQuotes(MARKET_INDICES.map((i) => i.symbol)))).quotes; }
+  try { return (await bounded(liveProvider.getQuotes(MARKET_INDICES.map((i) => i.symbol)), INTERACTIVE_TIMEOUT_MS)).quotes; }
   catch { return [] as Quote[]; }
 }, ["market-brief-indices-v2"], { revalidate: 120 });
 
@@ -30,7 +43,7 @@ export const getMarketNews = unstable_cache(fetchMarketNews, ["market-brief-news
  */
 const fetchIndexHistory = unstable_cache(async (symbol: string): Promise<HistoryPoint[]> => {
   try {
-    const bars = await bounded(liveProvider.getDailyBars(symbol, 30));
+    const bars = await bounded(liveProvider.getDailyBars(symbol, 30), INTERACTIVE_TIMEOUT_MS);
     return bars.flatMap((b) => b.close != null && Number.isFinite(b.close) && b.close > 0 ? [{ date: b.date, close: b.close }] : []).slice(-20);
   } catch { return []; }
 }, ["market-brief-index-history-v1"], { revalidate: 900 });
@@ -53,8 +66,8 @@ export type MarketOverview = {
 /** Quote-only request with stored fallback; no ingestion and no history writes. */
 export async function getMarketOverview(): Promise<MarketOverview> {
   const [live, stored] = await Promise.all([
-    fetchIndices(),
-    db.select().from(quotes).where(inArray(quotes.symbol, MARKET_INDICES.map((i) => i.symbol))),
+    traced("overview:providerQuotes", () => fetchIndices()),
+    traced("overview:storedQuotes", () => db.select().from(quotes).where(inArray(quotes.symbol, MARKET_INDICES.map((i) => i.symbol)))),
   ]);
 
   const cards = await Promise.all(MARKET_INDICES.map(async (index): Promise<MarketIndexCard> => {
@@ -71,14 +84,14 @@ export async function getMarketOverview(): Promise<MarketOverview> {
       : null;
     const quote = fresh && (!fallback || fresh.asOf >= fallback.asOf) ? fresh : fallback;
 
-    const bars = await db
+    const bars = await traced(`overview:storedBars:${index.symbol}`, () => db
       .select({ date: priceBars.tradingDate, close: priceBars.currentProviderClose })
       .from(priceBars).where(eq(priceBars.symbol, index.symbol))
-      .orderBy(desc(priceBars.tradingDate)).limit(20);
+      .orderBy(desc(priceBars.tradingDate)).limit(20));
     // Index volume is not meaningful; null/non-positive closes remain excluded.
     const storedPoints = bars.reverse().flatMap((b) =>
       b.close != null && Number.isFinite(Number(b.close)) && Number(b.close) > 0 ? [{ date: b.date, close: Number(b.close) }] : []);
-    const points = storedPoints.length >= 2 ? storedPoints : await fetchIndexHistory(index.symbol);
+    const points = storedPoints.length >= 2 ? storedPoints : await traced(`overview:providerHistory:${index.symbol}`, () => fetchIndexHistory(index.symbol));
 
     return {
       symbol: index.symbol,

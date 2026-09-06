@@ -8,7 +8,9 @@ const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(e.message));
 let checks = 0;
 function check(label: string, value: boolean) { if (!value) throw new Error(label); checks++; console.log(`PASS ${label}`); }
-async function visit(path: string) { await page.goto(base + path); await expect(page.locator(".terminal")).toBeVisible(); }
+async function visit(path: string) { await page.goto(base + path); await expect(page.locator(".terminal")).toBeVisible(); await settled(); }
+/** Streamed sections render placeholders first; assert on the real thing. */
+async function settled() { await expect(page.locator(".is-loading")).toHaveCount(0, { timeout: 30000 }); }
 async function account() { await page.getByRole("button", { name: "Account menu", exact: true }).click(); await expect(page.getByRole("region", { name: "Your account" })).toBeVisible(); }
 async function logout() { await account(); await page.getByRole("button", { name: "Sign out", exact: true }).click(); await page.waitForURL("**/login"); }
 async function ask(question: string) {
@@ -36,6 +38,7 @@ try {
   await page.getByRole("button", { name: "Create account", exact: true }).click();
   await page.waitForURL(base + "/", { timeout: 40000 });
   await expect(page.getByRole("heading", { name: /Tanisha/ })).toBeVisible();
+  await settled();
   check("signup lands on a Home greeting that uses the stored first name",
     /Good (morning|afternoon|evening), Tanisha/.test(await page.locator(".home-hero").innerText()));
   for (const name of ["NIFTY 50", "SENSEX", "NIFTY BANK", "S&P 500", "NASDAQ Composite", "Dow Jones"]) {
@@ -73,7 +76,7 @@ try {
   check("theme switches and Escape closes with focus restored", true);
   await account(); await page.getByRole("heading", { name: /Tanisha/ }).click();
   check("click outside closes account menu", !await page.locator("#account-dropdown").isVisible());
-  await page.reload(); await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.reload(); await settled(); await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   check("theme and session persist after reload", page.url() === base + "/");
   await account(); await page.getByRole("radio", { name: "Dark", exact: true }).check(); await page.keyboard.press("Escape");
   check("sidebar contains only primary navigation, not Logout", !/Logout|Sign out/.test(await page.locator(".app-sidebar").innerText()));

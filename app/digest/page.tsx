@@ -9,12 +9,18 @@ import { marketLine } from "@/lib/securities";
 import { AppShell } from "@/components/app-shell";
 import { DigestReadReceipt } from "@/components/digest-read-receipt";
 import { DashboardCard, EmptyState, CompanyMark, Icon } from "@/components/ui";
+import { traceRoute, traced } from "@/lib/trace";
 
 export const dynamic = "force-dynamic";
 export default async function DigestPage() {
-  const user = await getSessionUser();
+  const done = traceRoute("digest");
+  const user = await traced("digest:session", () => getSessionUser());
   if (!user) redirect("/login");
-  const [d, rows] = await Promise.all([getDigest(user.id), getWatchlist(user.id)]);
+  const [d, rows] = await Promise.all([
+    traced("digest:digest", () => getDigest(user.id)),
+    traced("digest:watchlist", () => getWatchlist(user.id)),
+  ]);
+  done();
   const counts = [
     { n: d.contradictions.length, label: "CONTRADICTED", detail: "Theses to revisit", tone: "text-contradiction" },
     { n: d.triggers.length, label: "TRIGGERED", detail: "Your conditions were met", tone: "text-trigger" },

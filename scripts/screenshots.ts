@@ -36,6 +36,8 @@ const email = `screenshots+${Date.now()}@example.com`;
 const password = "screenshot-fixture-2026";
 
 async function shot(page: Page, name: string) {
+  // Never photograph a streaming placeholder.
+  await expect(page.locator(".is-loading")).toHaveCount(0, { timeout: 30000 });
   await page.waitForTimeout(400);            // let charts settle, not data load
   await page.screenshot({ path: `${output}/${name}.png`, animations: "disabled" });
   console.log(`  ✓ ${name}`);

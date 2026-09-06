@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { getMarketNews, getMarketOverview } from "@/lib/market-brief-server";
+import { getDigest } from "@/lib/digest";
+import { getPresentationData } from "@/lib/presentation";
+import { getWatchlist } from "@/lib/watchlist";
 import { homeGreeting } from "@/lib/user-profile";
 import { HomeGreeting } from "@/components/home-greeting";
 import { formatExchangeTime } from "@/lib/time";
@@ -62,6 +66,64 @@ function StatusChip({ status }: { status: MarketStatus }) {
   // truth about the data; inventing "closed" would not.
   if (!status) return <span className="status-badge neutral">STATE UNAVAILABLE</span>;
   return <span className={`status-badge ${status === "OPEN" ? "positive" : "neutral"}`}>{status}</span>;
+}
+
+/**
+ * The three sections below fetch their own data and are rendered inside Suspense.
+ *
+ * WHY THAT MATTERS. The market pulse needs a quote from the provider, and a
+ * provider call from a datacenter is the slowest thing this product does — it was
+ * measured at over a second cold, and it sat between a click and the first pixel
+ * of every visit to Home. Streaming moves it off the navigation path: the shell,
+ * the greeting and the rest of the page paint from stored state immediately, and
+ * these fill in when their data arrives. No value changes, and none is invented
+ * while waiting — the fallbacks are empty frames, not placeholder numbers.
+ */
+export async function MarketPulseSection() {
+  return <MarketPulse overview={await getMarketOverview()} />;
+}
+
+export async function PersonalSummarySection({ userId }: { userId: number }) {
+  // The same digest the Digest page renders, memoised per request.
+  const [rows, digest, presentation] = await Promise.all([
+    getWatchlist(userId), getDigest(userId), getPresentationData(userId),
+  ]);
+  const changes = digest.triggers.length + digest.contradictions.length + digest.missed.length + digest.anomalies.length;
+  return <PersonalSummary
+    watched={rows.length}
+    conditions={presentation.theses.filter((t) => t.type !== "none").length}
+    changes={changes} />;
+}
+
+export async function MarketBriefingSection() {
+  return <MarketBriefing news={await getMarketNews()} />;
+}
+
+/** Frames with the final layout and no fabricated content. */
+export function MarketPulseSkeleton() {
+  return <section className="market-pulse" aria-label="Global market pulse" aria-busy="true">
+    <header className="section-heading">
+      <div><span className="eyebrow">GLOBAL MARKET PULSE</span><h2>Two markets, each on its own clock</h2></div>
+      <span className="market-status-line">Loading market data…</span>
+    </header>
+    {["India", "United States"].map((label) => <div key={label} className="pulse-region">
+      <div className="pulse-region-heading"><h3>{label}</h3></div>
+      <div className="market-indices">{[0, 1, 2].map((i) => <section key={i} className="panel index-card is-loading" />)}</div>
+    </div>)}
+  </section>;
+}
+
+export function PersonalSummarySkeleton() {
+  return <section className="panel thesis-strip is-loading" aria-busy="true">
+    <div className="thesis-strip-head"><span className="eyebrow">YOUR THESIS</span></div>
+    <div className="thesis-strip-metrics">{[0, 1, 2].map((i) => <div key={i}><strong className="num">&nbsp;</strong><span>&nbsp;</span></div>)}</div>
+  </section>;
+}
+
+export function MarketBriefingSkeleton() {
+  return <DashboardCard title="Market Briefing" action={<span className="eyebrow">INDIA-FOCUSED CONTEXT</span>} className="market-news is-loading">
+    <div className="news-list" aria-busy="true">{[0, 1, 2, 3].map((i) => <span key={i} className="news-item" />)}</div>
+  </DashboardCard>;
 }
 
 export function MarketPulse({ overview }: { overview: MarketOverview }) {

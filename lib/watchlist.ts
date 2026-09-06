@@ -1,4 +1,6 @@
 import "server-only";
+import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { quotes, symbols, theses, watchlistItems } from "@/db/schema";
@@ -6,6 +8,7 @@ import { liveProvider } from "@/lib/market/live";
 import { classify, type FeedHealth } from "@/lib/feed-health";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { describeSecurity, type Security } from "@/lib/securities";
+import { traced } from "@/lib/trace";
 
 /** `excluded.<col>` in an ON CONFLICT DO UPDATE — the row Postgres tried to insert. */
 const sqlExcluded = (col: string) => sql.raw(`excluded.${col}`);
@@ -46,8 +49,8 @@ export type WatchlistRow = {
  * means in practice. Every row carries the exchange timestamp of the price
  * shown, and the UI states its age rather than implying it is live.
  */
-export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
-  const rows = await db
+export const getWatchlist = cache(async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
+  const rows = await traced("query:watchlistRows", () => db
     .select({
       symbol: watchlistItems.symbol,
       addedAt: watchlistItems.createdAt,
@@ -67,7 +70,7 @@ export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
     .leftJoin(quotes, eq(quotes.symbol, watchlistItems.symbol))
     .leftJoin(theses, eq(theses.watchlistItemId, watchlistItems.id))
     .where(eq(watchlistItems.userId, userId))
-    .orderBy(watchlistItems.createdAt);
+    .orderBy(watchlistItems.createdAt));
 
   return rows.map((row) => {
     const price = row.price == null ? null : Number(row.price);
@@ -90,7 +93,7 @@ export async function getWatchlist(userId: number): Promise<WatchlistRow[]> {
       health: classify(row.misses),
     };
   });
-}
+});
 
 export type AddResult = { ok: true; watchlistItemId: number } | { ok: false; error: string };
 
@@ -189,10 +192,27 @@ export async function removeSymbol(userId: number, symbol: string): Promise<void
     .where(and(eq(watchlistItems.userId, userId), eq(watchlistItems.symbol, symbol)));
 }
 
+/**
+ * Company search, briefly cached per query.
+ *
+ * Search is a provider round trip on a keystroke-debounced path, and the same
+ * few queries get typed over and over — "infy", "apple" — while a company's
+ * identity does not change minute to minute. Sixty seconds keeps the dropdown
+ * instant on repeats without holding a stale company list. A provider failure
+ * still returns nothing rather than an error.
+ */
+const cachedSearch = unstable_cache(
+  async (query: string) => {
+    try { return await liveProvider.search(query); }
+    catch { return []; }
+  },
+  ["company-search-v1"],
+  { revalidate: 60 },
+);
+
 export async function searchSymbols(query: string) {
-  try {
-    return await liveProvider.search(query);
-  } catch {
-    return [];
-  }
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+  try { return await cachedSearch(trimmed.toLowerCase()); }
+  catch { return []; }
 }
