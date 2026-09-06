@@ -135,30 +135,36 @@ size, the volume ratio, the stock-specific residual — stored immutably and ren
 as-is.
 
 ### Ask THESIS
-An authenticated conversation, resolved against the turns behind it. Ask *"Which
-stock should I invest in?"* and it declines and asks which companies you are
-weighing; answer *"Apple and Infosys"* — a fragment with no verb — and it compares
-them from recorded evidence. Follow-ups carry their subject: *"Was that unusual?"*,
-*"What would invalidate it?"*, *"How does THESIS calculate it?"*
+A finance assistant that also happens to hold your records. Ask it what a P/E
+ratio is, why interest rates move share prices, or what to look at when comparing
+two companies, and it answers as a finance assistant would. Ask it about *your*
+watchlist and it answers from stored evidence instead — and says which is which.
 
-- **YOUR EVIDENCE** — stored state only: your watchlist, the condition and note you
-  saved, its deterministic verdict, detected events with the evidence captured at
-  detection, the anomaly classification, the replay, and what the engine's own
-  contradiction rule requires before your condition would be called invalid.
-- **COMPARISON** — companies side by side from committed rows: price and freshness,
-  the last session's move, the return over 20 stored sessions, realized volatility,
-  beta against each one's own market index, median volume, detected events and the
-  anomaly classification. It never ranks, and a company THESIS holds nothing for is
-  named as empty rather than estimated.
-- **GENERAL EXPLANATION** — finance concepts, answered from a built-in concept table
-  that defines each term the way this engine actually measures it. `OPENAI_API_KEY`
-  is optional and extends coverage beyond the table.
-- **NON-ADVISORY** — buy/sell/hold, stock picking and price predictions are declined,
-  and the refusal opens the comparison rather than ending the exchange.
+Routing is decided by **ownership, not by company names**. "Tell me about
+Reliance" is a finance question; "Explain my Reliance thesis" is a question about
+a record. Four intents:
 
-Grounded answers and comparisons are composed on the server from committed rows and
-never leave it. The optional model sees general-education turns only — no watchlist,
-condition, note, quote, event or anomaly, and no earlier message that named a company.
+- **GENERAL** — markets, investing, accounting, economics, and companies discussed
+  in general terms. The configured model is the primary path here. Where THESIS
+  has recorded something about a company that came up, a clearly separated
+  *"From your THESIS data"* block is appended — it enriches the answer, never
+  replaces it.
+- **GROUNDED_THESIS** — your watchlist, saved condition and note, deterministic
+  verdict, detected events with detection-time evidence, the anomaly
+  classification, the replay, and what the engine's contradiction rule requires
+  before your condition would be called invalid. Composed on the server from
+  committed rows, and never sent to any external service.
+- **ADVISORY** — no buy, sell, hold, price target or forecast. The refusal is one
+  sentence; the rest of the reply is the evaluation framework and any recorded
+  evidence for the companies named.
+- **FOLLOW_UP** — a message with no content of its own ("why does it matter?",
+  "which one is more volatile?") resolves to whatever the conversation was doing,
+  carrying its companies and concepts.
+
+**The model is the general path; the 60-concept table is what answers without
+one.** Set `OPENAI_API_KEY` for unrestricted general chat. Without it, concepts,
+frameworks, company evidence, comparisons and every grounded answer still work,
+and anything outside them says so plainly rather than guessing.
 
 ---
 
@@ -427,7 +433,7 @@ Set the variables in `.env.local`:
 |---|---|---|
 | `DATABASE_URL` | **yes** | Postgres connection string (Neon pooled URL, or any Postgres). |
 | `CRON_SECRET` | for ingestion | Shared secret for `/api/ingest`. Without it the route refuses every request rather than failing open. |
-| `OPENAI_API_KEY` | optional | Extends Ask THESIS's *general finance education* beyond its built-in concept table. Every mode, including general explanations, works without it. |
+| `OPENAI_API_KEY` | recommended | The primary path for Ask THESIS's **general** finance chat. Without it, general questions are answered from the built-in 60-concept table and anything outside it says so rather than guessing. Grounded answers never use it. |
 | `OPENAI_MODEL` | optional | Defaults to `gpt-4.1-mini`. |
 | `THESIS_DATA_MODE` | optional | Set to `demo` for the deterministic DEMO REPLAY path. |
 | `SESSION_SECRET` | no | Legacy field kept in the template; current auth uses random opaque tokens and stores only their hashes. |
@@ -479,7 +485,7 @@ The suite is written around the promises the product makes, not around coverage:
 - **global support** — search, currency, exchange clocks and benchmarks across NSE/NASDAQ/NYSE
 - **cross-user isolation** — no user's context can widen to another user's data
 
-Latest verified run: **258 assertions passing**, **48 smoke checks**, **114 browser
+Latest verified run: **258 assertions passing**, **48 smoke checks**, **134 browser
 checks**, a clean production build, and the visual matrix passing across four viewports
 in all three appearances.
 

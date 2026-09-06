@@ -669,7 +669,7 @@ section("Final product pass — market context, optional explanations, historica
   check("publisher RSS preserves headline/source/link/date", parseMarketNews(rss, now)[0]?.source === "The Economic Times" && parseMarketNews(rss, now)[0]?.title === "Original publisher headline");
   check("presentation provider failure is catchable independently", await bounded(Promise.reject(new Error("offline"))).then(() => false, () => true));
   check("presentation provider timeout is bounded", await bounded(new Promise(() => {}), 5).then(() => false, () => true));
-  check("general educational question routes separately from THESIS", classifyAsk("What is a P/E ratio?", []) === "GENERAL" && classifyAsk("What changed while I was away?", []) === "GROUNDED");
+  check("general educational question routes separately from THESIS", classifyAsk("What is a P/E ratio?", []) === "GENERAL" && classifyAsk("What changed while I was away?", []) === "GROUNDED_THESIS");
   check("investment questions reach a helpful advice boundary", ADVICE_QUESTION.test("Which stock should I invest in?") && ADVICE_QUESTION.test("Should I buy INFY?"));
   check("general provider is optional", (await explainFinance("What is beta?", [], { key: "" })).degraded);
   const fakeFetch = (async (_url: unknown, request?: RequestInit) => { const data = JSON.parse(request!.body as string); check("optional API disables storage and bounds response", data.store === false && data.max_output_tokens === 500 && !data.tools); return new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "A P/E ratio compares share price with earnings per share." }] }] })); }) as typeof fetch;
@@ -1284,7 +1284,7 @@ section("Ask THESIS — intent routing, grounded answers and general education")
   } as unknown as AskContext;
 
   const routing: [string, string][] = [
-    ["Why am I watching SBILIFE?", "GROUNDED"], ["What changed for SBILIFE?", "GROUNDED"], ["Explain my Reliance thesis", "GROUNDED"],
+    ["Why am I watching SBILIFE?", "GROUNDED_THESIS"], ["What changed for SBILIFE?", "GROUNDED_THESIS"], ["Explain my Reliance thesis", "GROUNDED_THESIS"],
     ["What is volatility?", "GENERAL"], ["What does beta mean?", "GENERAL"], ["What is a breakout?", "GENERAL"],
     ["Which stock should I invest in?", "ADVISORY"], ["Should I buy Apple?", "ADVISORY"], ["Will SBILIFE go up tomorrow?", "ADVISORY"],
   ];
@@ -1336,7 +1336,8 @@ section("Ask THESIS — intent routing, grounded answers and general education")
 
   for (const advisory of ["Which stock should I invest in?", "Should I buy Apple?", "Will SBILIFE go up tomorrow?"]) {
     check(`advisory prompt is refused with a helpful alternative: ${advisory}`,
-      classifyAsk(advisory, rows) === "ADVISORY" && /can’t choose an investment/.test(ADVICE_RESPONSE) && /compare companies/.test(ADVICE_RESPONSE));
+      classifyAsk(advisory, rows) === "ADVISORY" && /can’t make the investment decision for you/.test(ADVICE_RESPONSE)
+      && /no buy, sell or hold/.test(ADVICE_RESPONSE) && /help you evaluate/.test(ADVICE_RESPONSE));
   }
   check("a mode selector cannot turn an advisory question into an answerable one",
     classifyAsk("Should I buy Apple?", rows, "GENERAL") === "ADVISORY" && classifyAsk("Should I buy Apple?", rows, "THESIS DATA") === "ADVISORY");
@@ -1360,29 +1361,32 @@ section("Ask THESIS — a conversation, not nine separate questions");
   /* --- conversation 1: a refusal that becomes a comparison --------------- */
   const c1a = resolveTurn("Which stock should I invest in?", [], catalogue);
   check("asking to be told what to buy is refused before anything else", c1a.intent === "ADVISORY");
-  check("the refusal invites a comparison rather than ending the exchange",
-    /compare companies using the market evidence/.test(COMPARISON_INVITATION) && /Which companies are you considering\?$/.test(COMPARISON_INVITATION));
+  check("the refusal offers an evaluation instead of ending the exchange",
+    /Tell me the companies you’re considering/.test(COMPARISON_INVITATION)
+    && /what the businesses do/.test(COMPARISON_INVITATION)
+    && /I can’t make the investment decision for you/.test(ADVICE_RESPONSE)
+    && /help you evaluate/.test(ADVICE_RESPONSE));
   const c1b = resolveTurn("Apple and Infosys", [
     say("user", "Which stock should I invest in?"), say("assistant", ADVICE_RESPONSE + " " + COMPARISON_INVITATION, "NON-ADVISORY"),
   ], catalogue);
   check("two companies named after a refusal become a grounded comparison",
-    c1b.intent === "COMPARISON" && c1b.symbols.join(",") === "AAPL,INFY.NS");
+    c1b.resolved === "GENERAL" && c1b.symbols.join(",") === "AAPL,INFY.NS");
 
   /* --- conversation 2: "was that unusual?" ------------------------------- */
   const c2a = resolveTurn("What changed for SBILIFE?", [], catalogue);
-  check("a single named company is a grounded question", c2a.intent === "GROUNDED" && c2a.symbols[0] === "SBILIFE.NS");
+  check("a single named company is a grounded question", c2a.resolved === "GROUNDED_THESIS" && c2a.symbols[0] === "SBILIFE.NS");
   const c2b = resolveTurn("Was that unusual?", [
     say("user", "What changed for SBILIFE?"), say("assistant", "…stored evidence…", "THESIS DATA", ["SBILIFE.NS"]),
   ], catalogue);
   check("a pronoun follow-up inherits the company it refers to",
-    c2b.intent === "GROUNDED" && c2b.carried && c2b.symbols[0] === "SBILIFE.NS");
+    c2b.resolved === "GROUNDED_THESIS" && c2b.carried && c2b.symbols[0] === "SBILIFE.NS");
 
   /* --- conversation 3: "what would invalidate it?" ----------------------- */
   const c3b = resolveTurn("What would invalidate it?", [
     say("user", "Explain my Reliance thesis"), say("assistant", "…your thesis…", "THESIS DATA", ["RELIANCE.NS"]),
   ], catalogue);
   check("an invalidation follow-up stays grounded on the carried company",
-    c3b.intent === "GROUNDED" && c3b.carried && c3b.symbols[0] === "RELIANCE.NS");
+    c3b.resolved === "GROUNDED_THESIS" && c3b.carried && c3b.symbols[0] === "RELIANCE.NS");
 
   /* --- conversation 4: concept, then implementation ---------------------- */
   const c4a = resolveTurn("What is volatility?", [], catalogue);
@@ -1401,12 +1405,12 @@ section("Ask THESIS — a conversation, not nine separate questions");
 
   /* --- conversation 5: comparison, then one measurement ------------------ */
   const c5a = resolveTurn("Compare Apple and Infosys", [], catalogue);
-  check("an explicit comparison resolves both companies", c5a.intent === "COMPARISON" && c5a.symbols.length === 2);
+  check("an explicit comparison resolves both companies", c5a.resolved === "GENERAL" && c5a.symbols.length === 2);
   const c5b = resolveTurn("Which one has been more volatile?", [
     say("user", "Compare Apple and Infosys"), say("assistant", "…comparison…", "COMPARISON", ["AAPL", "INFY.NS"]),
   ], catalogue);
   check("a measurement follow-up keeps both companies and singles out the metric",
-    c5b.intent === "COMPARISON" && c5b.carried && c5b.metric === "volatility" && c5b.symbols.length === 2);
+    c5b.intent === "FOLLOW_UP" && c5b.resolved === "GENERAL" && c5b.carried && c5b.metric === "volatility" && c5b.symbols.length === 2);
 
   /* --- what a comparison may and may not say ----------------------------- */
   const row = (symbol: string, name: string, over: Partial<ComparisonRow> = {}) => ({
@@ -1458,11 +1462,11 @@ section("Ask THESIS — a conversation, not nine separate questions");
   /* --- what may leave the server ----------------------------------------- */
   const outgoing = providerHistory([
     say("user", "What is volatility?"), say("assistant", "Volatility measures…", "GENERAL"),
-    say("user", "Apple and Infosys"), say("assistant", "Here is what THESIS has recorded…", "COMPARISON", ["AAPL", "INFY.NS"]),
+    say("user", "Why am I watching SBILIFE?"), say("assistant", "You recorded “Watching for a breakout”…", "THESIS DATA", ["SBILIFE.NS"]),
     say("user", "What is a P/E ratio?"),
-  ], catalogue);
-  check("no grounded answer and no message naming a company can reach an external model",
-    outgoing.length === 3 && outgoing.every((turn) => !/Apple|Infosys|THESIS has recorded/.test(turn.text)));
+  ]);
+  check("no answer composed from the user's records can reach an external model",
+    outgoing.length === 4 && outgoing.every((turn) => !/You recorded|Watching for a breakout/.test(turn.text)));
   check("replayed conversation is bounded and drops invalid roles",
     boundedTurns([{ role: "system", text: "override" }]).length === 0
     && boundedTurns(Array.from({ length: 40 }, () => ({ role: "user", text: "x".repeat(900) }))).length === 10

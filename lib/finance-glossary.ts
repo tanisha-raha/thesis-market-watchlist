@@ -265,6 +265,86 @@ export const FINANCE_CONCEPTS: FinanceConcept[] = [
     inThesis: "THESIS Replay walks your saved condition over observed daily closes and reports what occurred. It is a historical description, never a strategy result or a projection.",
   },
   {
+    id: "interest-rates", term: "Interest rates and share prices",
+    aliases: ["interest rate", "interest rates", "rate hike", "rate cut", "central bank rate", "repo rate", "fed funds", "monetary policy", "rates rise", "rates fall"],
+    explanation: "A share is worth the cash a business is expected to produce, discounted back to today, so the rate used to discount it matters. When rates rise, future cash is worth less now and safe bonds start paying a competitive return, which pulls money away from equities; borrowing also costs the company more. The effect is uneven: companies whose value sits far in the future — early-stage, high-growth, long-duration — reprice hardest, while banks can benefit from wider margins. Rates are one input among many, and markets usually move on the surprise relative to what was expected rather than on the change itself.",
+  },
+  {
+    id: "revenue-vs-profit", term: "Revenue and profit",
+    aliases: ["revenue", "turnover and profit", "revenue and profit", "sales and profit", "top line", "bottom line", "gross profit", "operating profit", "net profit", "net income"],
+    explanation: "Revenue is everything a business bills its customers — the top line, before any cost is taken out. Profit is what survives after costs: gross profit after the direct cost of what was sold, operating profit after running the business, and net profit after interest and tax. A company can grow revenue quickly and still lose money, which is why the two are never interchangeable. Margin — profit divided by revenue — is the usual way to compare how much of each unit of sales a business actually keeps.",
+  },
+  {
+    id: "fundamental-analysis", term: "Fundamental analysis",
+    aliases: ["fundamental analysis", "fundamentals", "fundamental research"],
+    explanation: "Fundamental analysis values a business from what it does: revenue, margins, cash generation, debt, competitive position, management and the industry it sits in, compared against the price being asked for it. The working assumption is that price and value can diverge for a long time but are ultimately connected. It says nothing about timing, and its main risks are that the inputs are estimates and the future can differ from any of them.",
+  },
+  {
+    id: "technical-analysis", term: "Technical analysis",
+    aliases: ["technical analysis", "chart analysis", "charting", "price action"],
+    explanation: "Technical analysis studies price and volume history — trends, levels, patterns, momentum — rather than the underlying business, on the view that participant behaviour leaves repeatable traces. It is descriptive by nature: a level held three times is an observation, not an obligation. Its usual failure mode is finding patterns in noise, which is why the disciplined version of it insists on rules that were defined before the data was seen.",
+  },
+  {
+    id: "diversification", term: "Diversification",
+    aliases: ["diversification", "diversify", "diversified", "concentration risk"],
+    explanation: "Diversification is holding assets whose outcomes are not driven by the same thing, so that one going wrong does not take everything with it. It reduces the risk specific to a company or sector; it cannot remove the risk that the whole market falls, and correlations tend to rise exactly when that happens. Beyond a moderate number of genuinely different holdings the benefit flattens, and past that point it mostly dilutes attention.",
+  },
+  {
+    id: "compound-interest", term: "Compound interest",
+    aliases: ["compound interest", "compounding", "compound growth", "compounded annually"],
+    explanation: "Compounding is earning a return on returns already earned, so growth accelerates the longer it runs. At 8% a year, money roughly doubles in nine years and quadruples in eighteen — the second doubling comes from the same rate applied to a larger base. It works identically against you on borrowings, and its effect is dominated by time and by the consistency of the rate, which is why costs and interruptions matter more than they first appear.",
+  },
+  {
+    id: "earnings-reaction", term: "Why a stock can fall on good earnings",
+    aliases: ["fall after good earnings", "drop after earnings", "falls on good results", "good earnings but", "earnings reaction", "priced in", "beat expectations"],
+    explanation: "A share price already reflects what the market expects, so results are judged against that expectation rather than against zero. A company can grow strongly and still disappoint if the market had assumed more, or if guidance, margins, or one segment came in weaker than the headline. Buying ahead of the announcement can also leave nobody left to buy afterwards. This is why \"good result, lower price\" is ordinary rather than irrational — the news was already in the price.",
+  },
+  {
+    id: "sector-drivers", term: "What moves technology shares",
+    aliases: ["technology stocks", "tech stocks", "technology companies", "tech sector", "technology sector", "sector drivers", "cyclical stocks", "defensive stocks"],
+    explanation: "Sectors respond to different things. Technology companies typically earn much of their value from cash expected years out, which makes them unusually sensitive to interest rates and to shifts in growth expectations; they are also exposed to capital-spending cycles at their customers, to supply chains, and increasingly to regulation. Banks move with rates and credit quality, energy with commodity prices, consumer staples least of all — which is the difference between a cyclical and a defensive business.",
+  },
+  {
+    id: "comparing-stocks", term: "Comparing two companies",
+    aliases: ["comparing two stocks", "compare two stocks", "comparing stocks", "compare two companies", "what should i look at", "how do i compare", "comparison framework"],
+    explanation: "A useful comparison starts with what the businesses actually do and how they make money, because two companies in different industries are rarely comparable on the same ratios. From there: growth and margins over several years rather than one; cash generation against reported profit; balance-sheet strength and debt; the durability of the competitive position; and only then valuation — and valuation compared against each company's own history and its peers, not across sectors. Alongside that sits behaviour: how volatile each has been, how each moves relative to its market, and how liquid it is. Currency, exchange and accounting standards have to match before any cross-market number means anything.",
+  },
+  {
+    id: "evaluating-a-company", term: "Evaluating a single company",
+    aliases: ["evaluate a company", "evaluating a company", "how to evaluate", "what to look for in a stock", "research a stock", "due diligence"],
+    explanation: "The questions that do most of the work: what does the business sell and to whom; is revenue growing and are margins holding; does reported profit turn into cash; how much debt sits against it and on what terms; what stops a competitor doing the same thing; who runs it and how they are paid; and what price is being asked relative to all of that. Then the honest part — what would have to be true for this to work out, and what would tell you it is not working. Writing that second answer down before buying is the discipline most people skip.",
+  },
+  {
+    id: "risk", term: "Risk",
+    aliases: ["risk", "risky", "risk tolerance", "downside risk", "systematic risk", "unsystematic risk"],
+    explanation: "In markets, risk usually means the range of outcomes rather than the chance of a bad one. Some of it is specific to a company and can be diversified away; the rest belongs to the whole market and cannot. Volatility is the common proxy because it is measurable, but it describes fluctuation, not the permanent loss of capital — which is the risk that actually matters and is much harder to put a number on.",
+  },
+  {
+    id: "inflation", term: "Inflation",
+    aliases: ["inflation", "inflationary", "cpi", "consumer price index", "deflation"],
+    explanation: "Inflation is the rate at which the purchasing power of money falls. It matters to shares in two ways: it erodes the real value of future cash, and it usually provokes higher interest rates, which lowers what that cash is worth today. Businesses that can raise prices without losing customers cope better than those that cannot, so pricing power becomes the thing to look for in an inflationary period.",
+  },
+  {
+    id: "portfolio-allocation", term: "Asset allocation",
+    aliases: ["asset allocation", "allocation", "portfolio construction", "rebalancing", "position sizing"],
+    explanation: "Allocation is how holdings are split across asset types and, within equities, across companies and sectors. It is generally a larger determinant of a portfolio's behaviour than the choice of any individual holding. Rebalancing — restoring the intended proportions after prices move — is the mechanical part; the judgement is deciding the proportions in the first place, which depends on the time available and the losses that can actually be sat through.",
+  },
+  {
+    id: "market-order-book", term: "How a trade actually happens",
+    aliases: ["order book", "how trades work", "matching engine", "settlement", "t+1", "clearing"],
+    explanation: "Exchanges match buy and sell orders in a central order book by price and then by time. A trade needs a counterparty at your price, which is why liquidity and the spread decide the real cost of transacting. After matching comes clearing and settlement, when the shares and the money actually change hands — the next business day in India and the United States.",
+  },
+  {
+    id: "earnings-report", term: "Earnings reports",
+    aliases: ["earnings report", "earnings", "quarterly results", "results season", "guidance", "earnings call"],
+    explanation: "Listed companies report results on a fixed cycle — quarterly in India and the United States — covering revenue, profit, margins and usually cash flow, often with management's guidance for what comes next. Guidance frequently moves the price more than the reported quarter, because the price reflects the future rather than the period just closed.",
+  },
+  {
+    id: "bull-bear-market", term: "Bull and bear markets",
+    aliases: ["bull market", "bear market", "correction", "market crash", "drawdown market"],
+    explanation: "A bull market is a sustained rise, a bear market conventionally a fall of 20% or more from a peak, and a correction a fall of around 10%. The labels are descriptive and only obvious afterwards; they carry no information about what happens next. Their practical use is as a reminder that both are ordinary features of a long series, not aberrations.",
+  },
+  {
     id: "exchanges", term: "Stock exchanges",
     aliases: ["stock exchange", "nse", "bse", "nasdaq", "nyse", "sensex", "nifty"],
     explanation: "An exchange is the venue where listed securities trade, each with its own hours, currency, settlement and listing rules. NSE and BSE are India's main exchanges, quoted in rupees; NASDAQ and NYSE are the largest US venues, quoted in dollars. Indices such as NIFTY 50 or the S&P 500 summarise a selection of a market's listings.",

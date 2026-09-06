@@ -101,10 +101,14 @@ try {
   }
   for (const question of ["Should I buy Apple?", "Will SBILIFE go up tomorrow?"]) {
     const refusal = await ask(question);
-    check(`advisory prompt is refused: ${question}`, refusal.category === "NON-ADVISORY" && /can’t choose an investment/.test(refusal.answer));
+    check(`advisory prompt is refused: ${question}`,
+      refusal.category === "NON-ADVISORY" && /can’t make the investment decision for you/.test(refusal.answer)
+      && !/\byou should (?:buy|sell|hold)\b/i.test(refusal.answer));
   }
   const advice = await ask("Which stock should I invest in?");
-  check("advice boundary offers helpful comparison instead", /can’t choose an investment/.test(advice.answer) && /compare companies/.test(advice.answer));
+  check("advice boundary hands back an evaluation, not a full stop",
+    /can’t make the investment decision for you/.test(advice.answer) && /help you evaluate/.test(advice.answer)
+    && advice.answer.length > 400 && /Tell me the companies you’re considering/.test(advice.answer));
   await page.getByLabel("Ask THESIS a question").fill("First line"); await page.getByLabel("Ask THESIS a question").press("Shift+Enter");
   check("Shift+Enter keeps multiline input", (await page.getByLabel("Ask THESIS a question").inputValue()).includes("\n"));
   await visit("/watchlist"); await expect(page.getByText("Nothing on your watchlist yet.")).toBeVisible();
@@ -169,12 +173,12 @@ try {
   // FIVE CONVERSATIONS, IN ONE CHAT. Each second turn names nothing: it is
   // answerable only because the turn before it is still in the conversation.
   const refusal = await ask("Which stock should I invest in?");
-  check("C1 · advice is refused and a comparison is offered",
-    refusal.category === "NON-ADVISORY" && /Which companies are you considering\?/.test(refusal.answer));
+  check("C1 · advice is refused and an evaluation is offered",
+    refusal.category === "NON-ADVISORY" && /Tell me the companies you’re considering/.test(refusal.answer));
   const compared = await ask("Apple and Infosys");
   check("C1 · naming two companies next is understood as the comparison",
     compared.category === "COMPARISON" && compared.answer.includes("AAPL") && compared.answer.includes("INFY.NS")
-    && /not a recommendation/.test(compared.answer));
+    && /margin|valuation|cash|From your THESIS data/i.test(compared.answer));
 
   const changed = await ask("What changed for INFY.NS?");
   check("C2 · a named company is answered from its own records", changed.category === "THESIS DATA" && changed.answer.includes("INFY.NS"));
@@ -196,15 +200,48 @@ try {
     howCalculated.category === "GENERAL" && /20 daily log returns/.test(howCalculated.answer));
 
   const pair = await ask("Compare Apple and Infosys");
-  check("C5 · an explicit comparison is grounded in stored evidence",
-    pair.category === "COMPARISON" && pair.answer.includes("AAPL") && pair.answer.includes("INFY.NS"));
+  check("C5 · a comparison answers generally and adds recorded evidence",
+    pair.category === "COMPARISON" && pair.answer.includes("AAPL") && pair.answer.includes("INFY.NS")
+    && /margin|valuation|cash|From your THESIS data/i.test(pair.answer));
   const moreVolatile = await ask("Which one has been more volatile?");
   check("C5 · a measurement follow-up keeps both companies",
     moreVolatile.category === "COMPARISON"
     && /realized volatility|no stored 20-day realized volatility/.test(moreVolatile.answer)
     && moreVolatile.answer.includes("AAPL") && moreVolatile.answer.includes("INFY.NS"));
+  // A GENERAL FINANCE CHATBOT, ASKED LIKE ONE. None of these mentions the user's
+  // records, and none of them may be answered from the watchlist.
+  const chat: [string, RegExp][] = [
+    ["Why do interest rates affect stocks?", /discount|borrow|bond/i],
+    ["What is the difference between revenue and profit?", /costs?|margin/i],
+    ["What is fundamental analysis?", /business|value/i],
+    ["Explain compound interest.", /return|doubl/i],
+    ["Why can a stock fall after good earnings?", /expect|priced in/i],
+    ["What is diversification?", /risk/i],
+  ];
+  for (const [question, expected] of chat) {
+    const reply = await ask(question);
+    check(`general finance chat: ${question}`,
+      reply.category === "GENERAL" && expected.test(reply.answer) && reply.answer.length > 150
+      && !/not on your watchlist|no stored|THESIS has no/i.test(reply.answer));
+  }
+
+  const aboutApple = await ask("Tell me about Apple.");
+  check("a general company question is answered as finance, not as a watchlist lookup",
+    (aboutApple.category === "GENERAL" || aboutApple.category === "COMPARISON")
+    && !/not on your watchlist/i.test(aboutApple.answer) && aboutApple.answer.length > 150);
+  const framework = await ask("What should I look at when comparing two stocks?");
+  check("asking how to compare is answered as a framework, not refused as advice",
+    framework.category === "GENERAL" && /margin|valuation|cash/i.test(framework.answer)
+    && !/can’t make the investment decision/.test(framework.answer));
+
+  const betaAnswer = await ask("What is beta?");
+  check("C12 · beta is explained generally", betaAnswer.category === "GENERAL" && /index/i.test(betaAnswer.answer));
+  const whyMatter = await ask("Why does it matter?");
+  check("C12 · a bare follow-up stays on the concept just explained",
+    whyMatter.category === "GENERAL" && /beta|index|market/i.test(whyMatter.answer));
+
   check("no answer in the conversation fell back to a not-connected message",
-    ![refusal, compared, changed, wasUnusual, explained, invalidates, volatility, howCalculated, pair, moreVolatile]
+    ![refusal, compared, changed, wasUnusual, explained, invalidates, volatility, howCalculated, pair, moreVolatile, aboutApple, framework, betaAnswer, whyMatter]
       .some((reply) => /aren’t connected|not connected/i.test(String(reply.answer))));
   const priorMessages = await page.locator(".chat-message").count(); await page.reload();
   await expect(page.locator(".chat-message")).toHaveCount(priorMessages);

@@ -3,22 +3,31 @@ import { findConcepts } from "@/lib/finance-glossary";
 /**
  * What is this turn about?
  *
- * A chat is not a sequence of unrelated questions. "Apple and Infosys" is a
- * sentence fragment with no verb; it means something only because the previous
- * turn asked which companies you were considering. "Was that unusual?" names
- * nothing at all. Routing each message on its own — which is what this used to
- * do — sends both of those to the general explainer, and the assistant appears
- * to have no memory of what it just said.
+ * A chat is not a sequence of unrelated questions, and — the mistake this
+ * routing made for a long time — naming a company is not the same as asking
+ * about your own records. "Tell me about Apple" is a finance question that
+ * happens to mention a company; "Explain my Apple thesis" is a question about
+ * something THESIS stored. Routing on the company name sent both to the
+ * watchlist and turned a chatbot into a query interface.
  *
- * So resolution takes the recent conversation as well as the message, and
- * produces three things the responder needs: the intent, the companies the turn
- * is about, and the concepts it is about. Entities and concepts carry forward
- * when a message refers back to them and are replaced the moment a message names
- * its own. Everything here is pure — no database, no network, no user records —
- * so every conversation in the test suite is a direct call.
+ * OWNERSHIP DECIDES. Grounded means the message reached for something of the
+ * user's — my, my watchlist, my thesis, while I was away, triggered, the
+ * evidence THESIS recorded. Everything else is a general finance question, and a
+ * general answer may still be *enriched* with stored evidence afterwards; that
+ * is the responder's decision, not this one's.
+ *
+ * FOLLOW_UP is its own intent because a bare "why does that matter?" has no
+ * content to classify. It resolves to whatever the conversation was already
+ * doing, carrying the companies and concepts with it. Everything here is pure —
+ * no database, no network, no user records — so every conversation in the test
+ * suite is a direct call.
  */
 
-export type AskIntent = "ADVISORY" | "COMPARISON" | "GROUNDED" | "GENERAL";
+/** The four things a message can be. FOLLOW_UP always resolves to one of the others. */
+export type AskIntent = "GENERAL" | "GROUNDED_THESIS" | "ADVISORY" | "FOLLOW_UP";
+
+/** What a FOLLOW_UP turned out to be, and what every other intent already is. */
+export type ResolvedIntent = "GENERAL" | "GROUNDED_THESIS" | "ADVISORY";
 
 /** The minimum a caller must know about a security to resolve a name against it. */
 export type KnownSecurity = { symbol: string; name?: string | null };
@@ -27,7 +36,10 @@ export type KnownSecurity = { symbol: string; name?: string | null };
 export type Turn = { role: "user" | "assistant"; text: string; category?: string | null; symbols?: string[] };
 
 export type ResolvedTurn = {
+  /** What the message is, before history is applied. */
   intent: AskIntent;
+  /** What it turned out to be. Equal to `intent` unless that was FOLLOW_UP. */
+  resolved: ResolvedIntent;
   /** Companies this turn is about, in the order they were named. */
   symbols: string[];
   /** True when those companies came from an earlier turn, not from this message. */
@@ -49,15 +61,24 @@ export type ResolvedTurn = {
  */
 export const ADVICE_QUESTION = /\b(should (?:i|we)|buy|sell|hold|invest in|investing in|investment recommend|good investment|best (?:stock|share|company|investment)|price target|recommend|predict|will .*go (?:up|down)|which stock)\b/i;
 
-/** First-person or product-record words. These are never a definition request. */
-const OWNERSHIP = /\b(my|mine|our|ours|watchlist|watching|watched|thesis|theses|triggered?|contradicted|missed?|digest|away|since i|replay|verdict|verdicts|holding|holdings|position|positions|portfolio)\b/i;
+/** Asking for a way to think about something is not asking to be told what to do. */
+const FRAMEWORK_QUESTION = /\b(what (?:should|do) (?:i|you|one|we) look (?:at|for)|how (?:do|would|should) (?:i|you|one|we) (?:evaluate|assess|analyse|analyze|compare|research)|what (?:factors|things) (?:should|do)|framework|criteria)\b/i;
+
+/**
+ * Reaching for something of your own.
+ *
+ * This is the ONLY thing that makes a question grounded. A company name does
+ * not, which is the whole point: "Tell me about Reliance" is a finance question,
+ * "Explain my Reliance thesis" is a question about a record.
+ */
+const OWNERSHIP = /\b(my|mine|our|ours|watchlist|watching|watched|thesis|theses|triggered?|contradicted|missed?|digest|while i was away|since i (?:was |last )?|replay|verdict|verdicts|holding|holdings|position|positions|portfolio|i(?:'m| am) watching|thesis recorded|recorded for me)\b/i;
 
 /**
  * Product vocabulary that can go either way. "Why was this pattern unusual" is a
  * question about stored evidence; "what is anomaly detection" is a question
  * about a concept. The definition test below separates them.
  */
-const PRODUCT_TOPIC = /\b(anomal\w*|unusual|outlier|pattern|evidence|event|events|condition|conditions|changed|change|changes|meaningful|alert|alerts|note|stale|freshness|live data|demo replay|invalidate\w*|contradict\w*)\b/i;
+const PRODUCT_TOPIC = /\b(anomal\w*|unusual|outlier|evidence|event|events|condition|conditions|changed|changes|meaningful|alert|alerts|stale|freshness|live data|demo replay|invalidate\w*|contradict\w*|detected|thesis recorded|thesis has)\b/i;
 
 /** Phrasing that asks what something means rather than what happened. */
 const DEFINITION = /\b(what is|what's|whats|what are|what does|what do|define|definition of|meaning of|difference between|how is .*(calculated|computed|measured|derived)|how do you calculate|explain the (concept|term|idea))\b/i;
@@ -190,71 +211,84 @@ function metricIn(message: string): ComparisonMetric | null {
   return METRICS.find(([, pattern]) => pattern.test(message))?.[0] ?? null;
 }
 
+/** What the previous assistant turn was doing, so a bare follow-up can continue it. */
+function previousIntent(history: Turn[]): ResolvedIntent | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const turn = history[i];
+    if (turn.role !== "assistant") continue;
+    if (turn.category === "THESIS DATA") return "GROUNDED_THESIS";
+    if (turn.category) return "GENERAL";
+  }
+  return null;
+}
+
+/** A message with no content of its own: it only means something after the last one. */
+function isFollowUp(text: string, concepts: string[], named: string[]): boolean {
+  if (OWNERSHIP.test(text) || DEFINITION.test(text)) return false;
+  if (named.length || concepts.length) return false;
+  return REFERENCE.test(text) || text.split(/\s+/).length <= 6;
+}
+
 /**
  * Resolve one turn against the conversation behind it.
  *
- * `mode` is the user's explicit selection in the conversation control. It can
- * force grounded or general, but it cannot turn an advisory question into an
- * answerable one.
+ * `mode` is an optional explicit override. It can force grounded or general, but
+ * it cannot turn an advisory question into an answerable one.
  */
 export function resolveTurn(message: string, history: Turn[], catalogue: KnownSecurity[], mode?: string | null): ResolvedTurn {
   const text = message.trim();
   const named = resolveSymbols(text, catalogue);
   const concepts = findConcepts(text).map((concept) => concept.id);
-  const refers = REFERENCE.test(text);
-  const base = { symbols: named, carried: false, concepts, implementation: false, metric: metricIn(text), asksComparison: COMPARE.test(text) };
+  const base = {
+    symbols: named, carried: false, concepts, implementation: false,
+    metric: metricIn(text), asksComparison: COMPARE.test(text),
+  };
+  const settle = (intent: AskIntent, resolved: ResolvedIntent, over: Partial<ResolvedTurn> = {}): ResolvedTurn =>
+    ({ ...base, intent, resolved, ...over });
 
-  if (!text) return { ...base, intent: "GROUNDED", metric: null };
-  if (ADVICE_QUESTION.test(text)) return { ...base, intent: "ADVISORY" };
+  if (!text) return settle("GENERAL", "GENERAL");
+
+  // Asking to be told what to do, checked before anything else. Asking for a way
+  // to think about a decision is a different question and stays general.
+  if (ADVICE_QUESTION.test(text) && !FRAMEWORK_QUESTION.test(text)) return settle("ADVISORY", "ADVISORY");
+
+  if (mode === "THESIS DATA") return settle("GROUNDED_THESIS", "GROUNDED_THESIS");
+  if (mode === "GENERAL") return settle("GENERAL", "GENERAL");
 
   // A concept follow-up, before ownership: "How does THESIS calculate it?"
   // contains the word "thesis" and would otherwise read as a personal question.
-  if (IMPLEMENTATION.test(text) && (concepts.length || (refers && carriedConcepts(history).length)) && named.length === 0) {
-    return { ...base, intent: "GENERAL", implementation: true, concepts: concepts.length ? concepts : carriedConcepts(history) };
+  if (IMPLEMENTATION.test(text) && named.length === 0) {
+    const carried = concepts.length ? concepts : carriedConcepts(history);
+    if (carried.length) return settle("GENERAL", "GENERAL", { implementation: true, concepts: carried });
   }
 
-  if (mode === "GENERAL" && named.length === 0) return { ...base, intent: "GENERAL" };
-
-  // TWO OR MORE COMPANIES IS A COMPARISON. Whether the user wrote "compare
-  // Apple and Infosys" or simply answered "Apple and Infosys" when asked which
-  // companies they were considering, the useful reply is the same one.
-  if (named.length >= 2) return { ...base, intent: "COMPARISON" };
-
-  if (named.length === 1) return { ...base, intent: "GROUNDED" };
-
-  // Nothing named. If this message refers back, inherit what the conversation
-  // was already about rather than starting from zero.
-  // Carry context only when the message actually leans on it: it refers back,
-  // or it is a fragment with no concept and no definition phrasing of its own.
-  // "What is a breakout?" is short, but it is a complete question.
-  const leansOnContext = refers
-    || (text.split(/\s+/).length <= 6 && concepts.length === 0 && !DEFINITION.test(text));
-  const carried = leansOnContext ? carriedSymbols(history, catalogue) : [];
-  if (carried.length) {
-    const wantsComparison = carried.length >= 2 && (COMPARE.test(text) || base.metric != null || invitedComparison(history));
-    if (wantsComparison) return { ...base, intent: "COMPARISON", symbols: carried, carried: true };
-    if (mode !== "GENERAL" && !DEFINITION.test(text) && (PRODUCT_TOPIC.test(text) || INVALIDATION.test(text) || OWNERSHIP.test(text) || refers)) {
-      return { ...base, intent: "GROUNDED", symbols: carried.slice(0, 1), carried: true };
+  // OWNERSHIP, AND ONLY OWNERSHIP, MAKES IT GROUNDED. A company name does not.
+  if (OWNERSHIP.test(text) || (PRODUCT_TOPIC.test(text) && !DEFINITION.test(text))) {
+    // "Was that unusual?" is grounded AND a reference: it names no company, so
+    // the one the conversation was already about comes with it.
+    if (named.length === 0 && REFERENCE.test(text)) {
+      const carried = carriedSymbols(history, catalogue);
+      if (carried.length) return settle("GROUNDED_THESIS", "GROUNDED_THESIS", { symbols: carried.slice(0, 1), carried: true });
     }
+    return settle("GROUNDED_THESIS", "GROUNDED_THESIS");
   }
 
-  if (mode === "THESIS DATA") return { ...base, intent: "GROUNDED" };
-  if (mode === "GENERAL") return { ...base, intent: "GENERAL" };
-  if (OWNERSHIP.test(text) || SUFFIXED_TICKER.test(text)) return { ...base, intent: "GROUNDED" };
-  // Only now does phrasing decide: "what is an anomaly" is a concept question,
-  // "why was this session unusual" is a question about something recorded.
-  if (DEFINITION.test(text)) return { ...base, intent: "GENERAL" };
-  // A concept follow-up with no reference word: carry the concept anyway.
-  if (concepts.length === 0 && refers && carriedConcepts(history).length) {
-    return { ...base, intent: "GENERAL", concepts: carriedConcepts(history) };
+  // Nothing of its own to classify: continue whatever the conversation was doing.
+  if (isFollowUp(text, concepts, named)) {
+    const carriedSymbolList = carriedSymbols(history, catalogue);
+    const carriedConceptList = carriedConcepts(history);
+    const resolved = previousIntent(history) ?? "GENERAL";
+    return settle("FOLLOW_UP", resolved === "ADVISORY" ? "GENERAL" : resolved, {
+      symbols: carriedSymbolList,
+      concepts: carriedConceptList,
+      carried: carriedSymbolList.length > 0 || carriedConceptList.length > 0,
+    });
   }
-  return { ...base, intent: PRODUCT_TOPIC.test(text) ? "GROUNDED" : "GENERAL" };
+
+  return settle("GENERAL", "GENERAL");
 }
 
-/** Single-turn routing, kept for callers that have no conversation to consider. */
-export function classifyAsk(question: string, watchlist: KnownSecurity[], mode?: string | null): AskIntent {
-  const intent = resolveTurn(question, [], watchlist, mode).intent;
-  // Without a conversation, two named companies is still a grounded question
-  // about the user's own data unless the message asks for a comparison.
-  return intent === "COMPARISON" && !COMPARE.test(question) ? "GROUNDED" : intent;
+/** Single-turn routing, kept for callers with no conversation to consider. */
+export function classifyAsk(question: string, watchlist: KnownSecurity[], mode?: string | null): ResolvedIntent {
+  return resolveTurn(question, [], watchlist, mode).resolved;
 }

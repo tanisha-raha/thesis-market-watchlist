@@ -126,7 +126,7 @@ export async function unknownSecurities(symbolList: string[]): Promise<string[]>
 const pct = (value: number | null, digits = 2) => value == null ? null : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 
 /** One line per recorded measurement, and silence where nothing was recorded. */
-function lines(row: ComparisonRow): string[] {
+export function lines(row: ComparisonRow): string[] {
   const money = (value: number | null) => value == null ? null : formatMoney(value, row.security.currency);
   const out: string[] = [];
   if (row.price != null) {
@@ -217,4 +217,19 @@ export function describeComparison(rows: ComparisonRow[], options: { metric?: Co
   }
   parts.push("This is recorded evidence, not a recommendation: THESIS does not rank companies or say which to buy.");
   return parts.join(" ");
+}
+
+/**
+ * "From your THESIS data …" — stored evidence attached to a general answer.
+ *
+ * Deliberately a separate, labelled block. A general explanation of what a
+ * business does and a list of observations this product recorded are different
+ * kinds of claim, and a reader has to be able to tell which is which at a
+ * glance. Returns null when there is nothing recorded, so a general answer is
+ * never padded with an empty section.
+ */
+export function thesisDataSection(rows: ComparisonRow[]): string | null {
+  if (rows.length === 0) return null;
+  const parts = rows.map((row) => `${row.symbol} — ${lines(row).join("; ")}.`);
+  return `From your THESIS data: ${parts.join(" ")} These are recorded observations, not a view on the business.`;
 }

@@ -1180,3 +1180,45 @@ Verified across four viewports from 390px to 1536px in all three appearances —
 133 layout captures, none overflowing — plus 258 assertions, 48 smoke checks, 114
 browser checks including the appearance selector and its persistence, the
 navigation assertions and a clean production build.
+
+## 2026-09-06 — Ask THESIS: a finance assistant that also holds your records
+
+The chat was a query interface wearing a chat skin. Two decisions caused it: any
+message naming a company in the catalogue routed to stored evidence, and the
+general path was concept-table-first with the model as a fallback. So "Tell me
+about Apple" became a dump of observations, "Compare Apple and Infosys" became a
+table, and anything outside 44 concepts hit a dead end.
+
+Ownership now decides, and nothing else. A company name is not a claim on the
+user's records — "Tell me about Reliance" is a finance question and "Explain my
+Reliance thesis" is not, and the difference is the word "my", not the word
+"Reliance". Four intents: GENERAL, GROUNDED_THESIS, ADVISORY, and FOLLOW_UP for a
+message with no content of its own, which resolves to whatever the conversation
+was already doing and carries its companies and concepts with it.
+
+Stored evidence enriches rather than replaces. A general answer about a company
+gets a separate, labelled "From your THESIS data" block when there is something
+recorded, because an explanation of a business and a list of observations are
+different kinds of claim and a reader has to be able to tell them apart. The
+advisory boundary works the same way: one sentence of refusal, then the framework
+and the recorded evidence, because a refusal that ends the conversation is not a
+boundary anyone thanks you for.
+
+The model is the general path now, not the fallback. Where the question was about
+a quantity this engine computes, the product's own definition is appended to the
+model's answer so the two cannot contradict each other. The concept table grew to
+sixty entries and is what answers when no model is configured — including
+frameworks for evaluating a company and comparing two, which is what the advisory
+and company paths need. Nothing composed from the user's records is ever sent
+outside; those turns are stripped from the history the model sees.
+
+The mode selector is gone. It existed because routing could not tell intents
+apart; it now can, and a control that exists to compensate for a bug should leave
+with the bug.
+
+Verified through the real endpoint: thirteen conversations, including both
+multi-turn ones, with no model configured — general concepts answered, company
+questions answered as finance with what cannot be verified named explicitly,
+grounded questions answered from records, advisory questions refused and then
+answered usefully. 258 assertions, 48 smoke checks, 134 browser checks, the
+visual matrix in three appearances, navigation assertions and a clean build.

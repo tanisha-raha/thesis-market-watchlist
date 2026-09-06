@@ -754,8 +754,6 @@ html[data-theme="light"] .home-hero { border-color: #b9ccd6; }
 .news-item > svg { grid-column: 2; grid-row: 1 / span 3; align-self: center; color: var(--color-accent); opacity: .55; }
 .news-item:hover { background: var(--surface-input); }
 .news-item:hover > svg { opacity: 1; }
-.chat-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; color: var(--color-muted); margin-top: 18px; }
-.chat-mode select { padding: 6px 10px; border: 1px solid var(--color-line); border-radius: 6px; background: var(--surface-input); color: var(--color-ink); }
 .chat-prompts small { display: block; margin-bottom: 8px; font-size: 8px; }
 .replay-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 20px; padding: 24px 0; }
 .replay-metrics strong { display: block; font-size: 25px; font-weight: 500; }
