@@ -37,8 +37,16 @@ import { currentDataMode } from "@/lib/ml/anomaly-server";
  * this cannot become a place where genuine errors go quiet.
  */
 const MISSING_TABLE = "42P01";
-const isMissingTable = (error: unknown) =>
-  typeof error === "object" && error != null && (error as { code?: string }).code === MISSING_TABLE;
+
+/** Drizzle wraps the driver error, so the SQLSTATE is one or more causes down. */
+function isMissingTable(error: unknown): boolean {
+  for (let current = error, depth = 0; current != null && depth < 5; depth++) {
+    if (typeof current !== "object") return false;
+    if ((current as { code?: string }).code === MISSING_TABLE) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
 
 async function whenReady<T>(work: () => Promise<T>, fallback: T): Promise<T> {
   try { return await work(); }
