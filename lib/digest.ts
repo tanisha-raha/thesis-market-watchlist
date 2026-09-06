@@ -221,7 +221,8 @@ export function evidenceFrom(explain: Record<string, unknown>, currency: string 
   return e;
 }
 
-const CONDITION_LABELS: Record<string, string> = {
+/** Human names for the engine's contradiction conditions. One source, several readers. */
+export const CONDITION_LABELS: Record<string, string> = {
   price_below_20d_ma: "Price below 20-day average",
   price_above_20d_ma: "Price above 20-day average",
   "20d_return_negative": "20-day return negative",

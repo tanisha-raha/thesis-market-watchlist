@@ -256,6 +256,37 @@ type Condition = { name: string; met: boolean; detail: Record<string, unknown> }
  * engine testable and calibratable: the same function can be run across sixty
  * days of seeded history to measure how often each rule actually fires.
  */
+/**
+ * The conditions that can contradict each thesis type, named exactly as the
+ * evaluator below emits them.
+ *
+ * Exported so an explanation of "what would invalidate this" is read off the
+ * engine's own rule set rather than written a second time in prose. The test
+ * suite asserts every name here appears in this file and carries a label, so the
+ * table cannot quietly drift away from the code underneath it.
+ */
+export const CONTRADICTION_CONDITIONS: Record<ThesisType, string[]> = {
+  price_range: ["price_moved_away_from_range", "volatility_doubled_since_creation", "benchmark_relative_residual_below_-5pct"],
+  breakout: ["close_below_20d_ma", "failed_breakout", "residual_negative_over_10d"],
+  momentum_up: ["price_below_20d_ma", "20d_return_negative", "residual_negative_over_20d"],
+  momentum_down: ["price_above_20d_ma", "20d_return_positive", "residual_positive_over_20d"],
+  volume_expansion: ["volume_below_median_for_3_sessions", "price_unchanged_within_1pct"],
+  // A pure trigger thesis: it can be met, but the engine never contradicts it.
+  volatility_watch: [],
+  none: [],
+};
+
+/** The whole contradiction rule for one thesis type, in the engine's own numbers. */
+export function contradictionRule(type: ThesisType) {
+  const conditions = CONTRADICTION_CONDITIONS[type] ?? [];
+  return {
+    conditions,
+    required: conditions.length >= 3 ? 2 : conditions.length,
+    sustainedSessions: CONTRADICTION_PERSISTENCE_SESSIONS,
+    minimumObservationMs: MIN_OBSERVATION_MS,
+  };
+}
+
 export function evaluateThesis(input: ThesisInput): ThesisVerdict[] {
   if (input.type === "none") return [];
 

@@ -2,7 +2,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { BrandMark, Icon } from "@/components/ui";
 
-type Message = { role: "assistant" | "user"; text: string; mode?: "LIVE" | "DEMO REPLAY"; category?: string; error?: boolean };
+type Message = { role: "assistant" | "user"; text: string; mode?: "LIVE" | "DEMO REPLAY"; category?: string; symbols?: string[]; error?: boolean };
 
 /**
  * What kind of answer this was, said plainly above it.
@@ -13,6 +13,7 @@ type Message = { role: "assistant" | "user"; text: string; mode?: "LIVE" | "DEMO
  */
 const LABELS: Record<string, string> = {
   "THESIS DATA": "YOUR EVIDENCE",
+  COMPARISON: "COMPARISON",
   GENERAL: "GENERAL EXPLANATION",
   "NON-ADVISORY": "NON-ADVISORY",
 };
@@ -44,15 +45,17 @@ export function AskThesisChat({ currentSymbol, demo = false, userId }: { current
     const controller = new AbortController(); abort.current = controller;
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      const response = await fetch("/api/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: clean, currentSymbol, mode, history: messages.filter((m) => m.category === "GENERAL" || m.role === "user").slice(-6) }), signal: controller.signal });
-      const payload = await response.json() as { answer?: string; mode?: "LIVE" | "DEMO REPLAY"; category?: string; error?: string; degraded?: boolean };
+      const response = await fetch("/api/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: clean, currentSymbol, mode, history: messages.slice(-10).map((m) => ({ role: m.role, text: m.text, category: m.category, symbols: m.symbols })) }), signal: controller.signal });
+      const payload = await response.json() as { answer?: string; mode?: "LIVE" | "DEMO REPLAY"; category?: string; symbols?: string[]; error?: string; degraded?: boolean };
       if (!response.ok || !payload.answer) throw new Error(payload.error ?? "Ask THESIS is temporarily unavailable.");
       const answer = payload.answer;
       // An answered question is never an error, whatever produced the answer:
       // only a request that did not come back is styled as one, below.
-      setMessages((items) => [...items, { role: "assistant", text: answer, mode: payload.mode, category: payload.category }]);
+      // The companies an answer was about are carried back on the next turn, so
+      // "which one has been more volatile?" still knows which two it means.
+      setMessages((items) => [...items.slice(-19), { role: "assistant", text: answer, mode: payload.mode, category: payload.category, symbols: payload.symbols }]);
     } catch {
-      setMessages((items) => [...items, { role: "assistant", error: true, text: "Ask THESIS is temporarily unavailable. Please try again. Your watchlist and digest are unchanged." }]);
+      setMessages((items) => [...items.slice(-19), { role: "assistant", error: true, text: "Ask THESIS is temporarily unavailable. Please try again. Your watchlist and digest are unchanged." }]);
     } finally { clearTimeout(timeout); setLoading(false); }
   };
   const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void ask(question); };

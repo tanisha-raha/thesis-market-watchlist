@@ -1,15 +1,18 @@
 import "server-only";
+import { cache } from "react";
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { changeEvents, theses, thesisEvents, watchlistItems } from "@/db/schema";
-import { evidenceFrom, getDigest, type Digest, type EvidenceEntry } from "@/lib/digest";
+import { CONDITION_LABELS, evidenceFrom, getDigest, type Digest, type EvidenceEntry } from "@/lib/digest";
 import { lastCommittedBatchAt } from "@/lib/ingestion";
 import { formatExchangeTime, formatIST, IST } from "@/lib/time";
 import { formatMoney, marketLine } from "@/lib/securities";
 import { getWatchlist, type WatchlistRow } from "@/lib/watchlist";
 import { getLatestAnomaly, type StoredAnomaly } from "@/lib/ml/anomaly-server";
 import { anomalyEvidence } from "@/lib/ml/anomaly";
-import { ADVICE_QUESTION, matchWatchedSymbol } from "@/lib/ask-intent";
+import { ADVICE_QUESTION, INVALIDATION, matchWatchedSymbol, type KnownSecurity } from "@/lib/ask-intent";
+import { contradictionRule, type ThesisType } from "@/lib/thesis-engine";
+import { symbols as symbolsTable } from "@/db/schema";
 
 /**
  * Ask THESIS is deliberately a reader of committed product state. It has no
@@ -133,7 +136,7 @@ function changedSymbols(digest: Digest): { symbol: string; what: string }[] {
 }
 
 /** Pure, bounded response selection. No price/event/thesis state is inferred here. */
-export function answerFromContext(rawQuestion: string, context: AskContext): AskReply {
+export function answerFromContext(rawQuestion: string, context: AskContext, resolved?: { symbols: string[] }): AskReply {
   const question = rawQuestion.trim().slice(0, MAX_QUESTION_LENGTH);
   const prefix = modePrefix(context.mode);
   // Currency and clock come from the watched security itself, so an answer about
@@ -156,7 +159,7 @@ export function answerFromContext(rawQuestion: string, context: AskContext): Ask
   // The anomaly layer explains itself only from what was stored at detection
   // time, and only as an observation — never as a cause or a forecast.
   if (/\b(unusual|anomal\w*|pattern|outlier)\b/i.test(question)) {
-    const target = matchWatchedSymbol(question, context.watchlist) ?? context.currentSymbol;
+    const target = resolved?.symbols?.[0] ?? matchWatchedSymbol(question, context.watchlist) ?? context.currentSymbol;
     const stored = target ? context.anomalies?.[target] : undefined;
     if (!target) {
       return reply("Name a watched company and I’ll tell you whether THESIS’s anomaly layer classified its most recent session as unusual, and show the signals it recorded.");
@@ -177,7 +180,10 @@ export function answerFromContext(rawQuestion: string, context: AskContext): Ask
   // A company NAMED in the question, kept separate from the page's current
   // symbol: "what changed" with a company in it is a question about that
   // company, while the same words on a company page are about the digest.
-  const named = matchWatchedSymbol(question, context.watchlist);
+  // The conversation resolver may already have decided which company this turn
+  // is about — including one carried over from an earlier message, which the
+  // words in front of us do not mention at all.
+  const named = resolved?.symbols?.[0] ?? matchWatchedSymbol(question, context.watchlist);
   const symbol = named ?? context.currentSymbol;
   // Any provider-style symbol with an exchange suffix — INFY.NS, TCS.BO — not
   // just NSE ones. Scoping is still watchlist membership, never the ticker.
@@ -198,6 +204,24 @@ export function answerFromContext(rawQuestion: string, context: AskContext): Ask
     }
     const condition = conditionLine(thesis, currencyFor(symbol));
     return reply(`You recorded “${thesisName(thesis.type)}” for ${symbol}${condition ? `, and ${condition}` : ""}.${thesis.note ? ` Your note at the time: “${thesis.note}”.` : " You did not add a note."} Its current deterministic state is ${thesis.state.toLowerCase().replace(/_/g, " ")}.${since}`);
+  }
+
+  // WHAT WOULD BREAK THIS. Answered from the engine's own contradiction rule,
+  // not from prose written about it, so the explanation cannot drift from the
+  // code that decides. Nothing is evaluated here; this states the standard.
+  if (INVALIDATION.test(question) && !/\btriggered\b/i.test(question)) {
+    if (!symbol) return reply("Name one of your watched companies and I’ll set out exactly what THESIS requires before it will call your condition contradicted.");
+    const thesis = context.theses.find((item) => item.symbol === symbol);
+    if (!thesis || thesis.type === "none") {
+      return reply(`No structured condition is recorded for ${symbol}, so there is nothing for THESIS to contradict. A saved condition is what gives it something to test.`);
+    }
+    const rule = contradictionRule(thesis.type as ThesisType);
+    if (rule.conditions.length === 0) {
+      return reply(`“${thesisName(thesis.type)}” is a pure trigger condition: THESIS records when it is met and never marks it contradicted, so nothing invalidates it. Its current deterministic state is ${thesis.state.toLowerCase().replace(/_/g, " ")}.`);
+    }
+    const named = rule.conditions.map((name) => (CONDITION_LABELS[name] ?? name.replace(/_/g, " ")).toLowerCase());
+    const hours = Math.round(rule.minimumObservationMs / 3600000);
+    return reply(`Your “${thesisName(thesis.type)}” for ${symbol} is contradicted only when at least ${rule.required} of these ${rule.conditions.length} independent conditions hold on the same session — ${named.join("; ")} — and keep holding for ${rule.sustainedSessions} consecutive sessions. One condition on one day is not enough, and nothing can contradict it within ${hours} hours of when you wrote it or last acknowledged it. Its current deterministic state is ${thesis.state.toLowerCase().replace(/_/g, " ")}.`);
   }
 
   // WHICH OF MINE. A list across the watchlist, not one company.
@@ -316,3 +340,16 @@ export async function getAskContext(userId: number, currentSymbol?: string | nul
     recentVerdicts: verdictRows.map((v) => ({ symbol: v.symbol, signalType: v.kind, occurredAt: v.at, resolvedAt: v.resolvedAt, evidence: evidenceFrom(v.evidence as Record<string, unknown>) })),
   };
 }
+
+/**
+ * Every security THESIS holds, for resolving a company someone names in chat.
+ *
+ * Shared market data, not user data: it is the same catalogue global search
+ * already exposes to any authenticated user, and it decides only which name maps
+ * to which symbol. What may then be SAID about that symbol is still decided by
+ * the reader — personal surfaces stay behind watchlist membership.
+ */
+export const getAskCatalogue = cache(async function getAskCatalogue(): Promise<KnownSecurity[]> {
+  const rows = await db.select({ symbol: symbolsTable.symbol, name: symbolsTable.name }).from(symbolsTable);
+  return rows.filter((row) => !row.symbol.startsWith("^"));
+});

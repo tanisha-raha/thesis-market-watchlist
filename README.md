@@ -135,18 +135,30 @@ size, the volume ratio, the stock-specific residual — stored immutably and ren
 as-is.
 
 ### Ask THESIS
-An authenticated explanation surface with three modes and a classifier that knows
-your watchlist, so *"Why am I watching SBILIFE?"* — a question with no product
-vocabulary in it at all — is recognised as being about your own records.
+An authenticated conversation, resolved against the turns behind it. Ask *"Which
+stock should I invest in?"* and it declines and asks which companies you are
+weighing; answer *"Apple and Infosys"* — a fragment with no verb — and it compares
+them from recorded evidence. Follow-ups carry their subject: *"Was that unusual?"*,
+*"What would invalidate it?"*, *"How does THESIS calculate it?"*
 
-- **YOUR EVIDENCE** — answered from stored state only: your watchlist, the condition
-  and note you saved, its deterministic verdict, detected events with the evidence
-  captured at detection, the anomaly classification and the replay.
+- **YOUR EVIDENCE** — stored state only: your watchlist, the condition and note you
+  saved, its deterministic verdict, detected events with the evidence captured at
+  detection, the anomaly classification, the replay, and what the engine's own
+  contradiction rule requires before your condition would be called invalid.
+- **COMPARISON** — companies side by side from committed rows: price and freshness,
+  the last session's move, the return over 20 stored sessions, realized volatility,
+  beta against each one's own market index, median volume, detected events and the
+  anomaly classification. It never ranks, and a company THESIS holds nothing for is
+  named as empty rather than estimated.
 - **GENERAL EXPLANATION** — finance concepts, answered from a built-in concept table
   that defines each term the way this engine actually measures it. `OPENAI_API_KEY`
-  is optional and extends coverage beyond the table; nothing here reads your data.
-- **NON-ADVISORY** — buy/sell/hold, stock picking and price predictions are declined
-  with an offer to compare recorded evidence instead.
+  is optional and extends coverage beyond the table.
+- **NON-ADVISORY** — buy/sell/hold, stock picking and price predictions are declined,
+  and the refusal opens the comparison rather than ending the exchange.
+
+Grounded answers and comparisons are composed on the server from committed rows and
+never leave it. The optional model sees general-education turns only — no watchlist,
+condition, note, quote, event or anomaly, and no earlier message that named a company.
 
 ---
 
@@ -467,7 +479,7 @@ The suite is written around the promises the product makes, not around coverage:
 - **global support** — search, currency, exchange clocks and benchmarks across NSE/NASDAQ/NYSE
 - **cross-user isolation** — no user's context can widen to another user's data
 
-Latest verified run: **233 assertions passing**, **48 smoke checks**, **92 browser
+Latest verified run: **256 assertions passing**, **48 smoke checks**, **113 browser
 checks**, a clean production build, and the visual matrix passing across four viewports
 in both themes.
 

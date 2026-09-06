@@ -1109,3 +1109,45 @@ Verified end to end on an unpromoted deployment: nine prompts — three grounded
 educational, three advisory — each answered or refused correctly, labelled YOUR
 EVIDENCE, GENERAL EXPLANATION or NON-ADVISORY, with no error card shown. 233 test
 assertions, 48 smoke checks, 92 browser checks, the visual matrix and a clean build.
+
+## 2026-09-06 — Ask THESIS: resolve the turn, not the sentence
+
+Refusing to pick a stock and then failing to understand "Apple and Infosys" is
+worse than not offering the comparison at all. Each message was routed on its own
+words, so a fragment with no verb — and no vocabulary the classifier recognised —
+fell through to the general explainer, and the assistant appeared to have no memory
+of the sentence it had just written.
+
+Resolution now takes the conversation with it. A turn produces an intent, the
+companies it is about and the concepts it is about; entities and concepts carry
+forward when a message leans on context and are replaced the moment a message names
+its own. "Was that unusual?" inherits the company from the turn before it, "What
+would invalidate it?" inherits the thesis, and "How does THESIS calculate it?"
+inherits the concept — none of which is special-cased: the same resolution carries
+any company in the catalogue and any concept in the table.
+
+Declining advice now opens a door instead of closing one. The refusal names what
+THESIS can do and asks which companies are being weighed, and the next turn is
+resolved as a comparison — including for a company nobody watches, resolved through
+the same cached, read-only search the dropdown uses so that a name THESIS has never
+stored still becomes a symbol and is reported as empty rather than dropped.
+
+The comparison reads committed rows only: price and freshness, the last session's
+move, the return over twenty stored sessions, realized volatility, beta against each
+security's own index, median volume, detected events and the anomaly classification.
+It answers "which is more volatile" by naming the larger recorded figure and saying
+that is not a judgement about which is the better holding. It never ranks, never
+fetches history, and never lets a general explanation overwrite a deterministic
+verdict. "What would invalidate it" is read off the engine's exported contradiction
+rule rather than written a second time in prose, and a test asserts every published
+condition still exists in the engine and carries a label.
+
+What may leave the server is narrower than before: grounded answers and comparisons
+are composed here and never sent anywhere, and the optional model receives only
+general-education turns with every message that named a company filtered out.
+
+Verified on an unpromoted deployment before promotion: all five multi-turn
+conversations answered correctly, every label right, no error card, and no
+"not connected" fallback anywhere. 256 assertions, 48 smoke checks, 113 browser
+checks including the five conversations end to end, the visual matrix, the
+navigation assertions and a clean production build.

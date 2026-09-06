@@ -32,7 +32,13 @@ import { replayThesis } from "@/lib/thesis-replay";
 import { getThesisReplay } from "@/lib/thesis-replay-server";
 import { priceInRange, breakoutConfirmed } from "@/lib/thesis-conditions";
 import { ADVICE_QUESTION, ADVICE_RESPONSE, explainFinance, generalExplanation, boundedConversation } from "@/lib/finance-assistant";
-import { classifyAsk } from "@/lib/ask-intent";
+import { classifyAsk, resolveTurn } from "@/lib/ask-intent";
+import { COMPARISON_INVITATION, boundedTurns, providerHistory } from "@/lib/ask-conversation";
+import { describeComparison, type ComparisonRow } from "@/lib/ask-compare";
+import { companyCandidates } from "@/lib/ask-entities-server";
+import { conceptsById, implementationOf } from "@/lib/finance-glossary";
+import { CONTRADICTION_CONDITIONS, contradictionRule } from "@/lib/thesis-engine";
+import { CONDITION_LABELS } from "@/lib/digest";
 import { cleanDisplayName, firstName, homeGreeting } from "@/lib/user-profile";
 import { recordedEvidence, signalLabel } from "@/lib/recorded-evidence";
 import { indexDisplayName } from "@/lib/market-brief";
@@ -1323,6 +1329,133 @@ section("Ask THESIS — intent routing, grounded answers and general education")
   }
   check("a mode selector cannot turn an advisory question into an answerable one",
     classifyAsk("Should I buy Apple?", rows, "GENERAL") === "ADVISORY" && classifyAsk("Should I buy Apple?", rows, "THESIS DATA") === "ADVISORY");
+}
+
+/* ------------------------------------------------------------------------- */
+section("Ask THESIS — a conversation, not nine separate questions");
+{
+  // Each block below is a real exchange: the second turn is resolved with the
+  // first one behind it, exactly as the endpoint resolves it. Nothing is matched
+  // on the literal sentences — the same resolution carries any company in the
+  // catalogue and any concept in the table.
+  const catalogue = [
+    { symbol: "AAPL", name: "Apple Inc." },
+    { symbol: "INFY.NS", name: "Infosys Limited" },
+    { symbol: "SBILIFE.NS", name: "SBI Life Insurance Company Limited" },
+    { symbol: "RELIANCE.NS", name: "Reliance Industries Limited" },
+  ];
+  const say = (role: "user" | "assistant", text: string, category?: string, symbols?: string[]) => ({ role, text, category, symbols });
+
+  /* --- conversation 1: a refusal that becomes a comparison --------------- */
+  const c1a = resolveTurn("Which stock should I invest in?", [], catalogue);
+  check("asking to be told what to buy is refused before anything else", c1a.intent === "ADVISORY");
+  check("the refusal invites a comparison rather than ending the exchange",
+    /compare companies using the market evidence/.test(COMPARISON_INVITATION) && /Which companies are you considering\?$/.test(COMPARISON_INVITATION));
+  const c1b = resolveTurn("Apple and Infosys", [
+    say("user", "Which stock should I invest in?"), say("assistant", ADVICE_RESPONSE + " " + COMPARISON_INVITATION, "NON-ADVISORY"),
+  ], catalogue);
+  check("two companies named after a refusal become a grounded comparison",
+    c1b.intent === "COMPARISON" && c1b.symbols.join(",") === "AAPL,INFY.NS");
+
+  /* --- conversation 2: "was that unusual?" ------------------------------- */
+  const c2a = resolveTurn("What changed for SBILIFE?", [], catalogue);
+  check("a single named company is a grounded question", c2a.intent === "GROUNDED" && c2a.symbols[0] === "SBILIFE.NS");
+  const c2b = resolveTurn("Was that unusual?", [
+    say("user", "What changed for SBILIFE?"), say("assistant", "…stored evidence…", "THESIS DATA", ["SBILIFE.NS"]),
+  ], catalogue);
+  check("a pronoun follow-up inherits the company it refers to",
+    c2b.intent === "GROUNDED" && c2b.carried && c2b.symbols[0] === "SBILIFE.NS");
+
+  /* --- conversation 3: "what would invalidate it?" ----------------------- */
+  const c3b = resolveTurn("What would invalidate it?", [
+    say("user", "Explain my Reliance thesis"), say("assistant", "…your thesis…", "THESIS DATA", ["RELIANCE.NS"]),
+  ], catalogue);
+  check("an invalidation follow-up stays grounded on the carried company",
+    c3b.intent === "GROUNDED" && c3b.carried && c3b.symbols[0] === "RELIANCE.NS");
+
+  /* --- conversation 4: concept, then implementation ---------------------- */
+  const c4a = resolveTurn("What is volatility?", [], catalogue);
+  check("a definition question is general and names its concept",
+    c4a.intent === "GENERAL" && c4a.concepts.includes("volatility"));
+  const c4b = resolveTurn("How does THESIS calculate it?", [
+    say("user", "What is volatility?"), say("assistant", "Volatility measures…", "GENERAL"),
+  ], catalogue);
+  check("“how does THESIS calculate it” is the same concept, implemented here",
+    c4b.intent === "GENERAL" && c4b.implementation && c4b.concepts.includes("volatility"));
+  const implementation = implementationOf(conceptsById(c4b.concepts));
+  check("the implementation answer is THESIS's own definition",
+    implementation != null && implementation.includes("20 daily log returns"));
+  check("a concept THESIS does not compute says so rather than inventing a method",
+    (implementationOf(conceptsById(["enterprise-value"])) ?? "").includes("does not compute"));
+
+  /* --- conversation 5: comparison, then one measurement ------------------ */
+  const c5a = resolveTurn("Compare Apple and Infosys", [], catalogue);
+  check("an explicit comparison resolves both companies", c5a.intent === "COMPARISON" && c5a.symbols.length === 2);
+  const c5b = resolveTurn("Which one has been more volatile?", [
+    say("user", "Compare Apple and Infosys"), say("assistant", "…comparison…", "COMPARISON", ["AAPL", "INFY.NS"]),
+  ], catalogue);
+  check("a measurement follow-up keeps both companies and singles out the metric",
+    c5b.intent === "COMPARISON" && c5b.carried && c5b.metric === "volatility" && c5b.symbols.length === 2);
+
+  /* --- what a comparison may and may not say ----------------------------- */
+  const row = (symbol: string, name: string, over: Partial<ComparisonRow> = {}) => ({
+    symbol, name, security: describeSecurity({ symbol, name, exchange: symbol.endsWith(".NS") ? "NSE" : "NASDAQ", currency: symbol.endsWith(".NS") ? "INR" : "USD", timeZone: symbol.endsWith(".NS") ? "Asia/Kolkata" : "America/New_York" }),
+    watched: false, health: "healthy", price: 100, changePercent: 1.5, asOf: new Date("2026-09-04T10:00:00Z"), marketState: "CLOSED",
+    return20d: 4.2, realizedVol20: 0.018, beta60: 1.1, benchmark: symbol.endsWith(".NS") ? "^NSEI" : "^GSPC",
+    medianVolume20: 1_000_000, sessionsUsed: 200, anomaly: null, latestEvent: null, thesis: null, ...over,
+  }) as ComparisonRow;
+  const pair = [row("AAPL", "Apple Inc.", { realizedVol20: 0.025 }), row("INFY.NS", "Infosys Limited", { realizedVol20: 0.012 })];
+  const comparison = describeComparison(pair, { metric: "volatility" });
+  check("a metric comparison names the larger recorded figure and refuses to rank",
+    comparison.includes("AAPL is the higher of the two at 2.50% daily") && comparison.includes("not a judgement about which is the better holding")
+    && comparison.includes("not a recommendation"));
+  check("each company is compared in its own currency, market and clock",
+    /Apple Inc\. \(AAPL, NASDAQ · US\): last stored price \$100\.00/.test(comparison)
+    && /Infosys Limited \(INFY\.NS, NSE · India\): last stored price ₹100\.00/.test(comparison)
+    && comparison.includes("nothing is converted between them"));
+  const thin = describeComparison([row("AAPL", "Apple Inc.", { price: null, return20d: null, realizedVol20: null, beta60: null, medianVolume20: null })], { unknown: ["NOTHELD.NS"] });
+  check("a company with nothing recorded is stated as empty, never estimated",
+    thin.includes("no stored quote yet") && thin.includes("THESIS holds nothing for NOTHELD.NS"));
+  check("company-shaped fragments are extracted, question words are not",
+    companyCandidates("Apple and Infosys").join(",") === "Apple,Infosys"
+    && companyCandidates("Compare Apple and Infosys").join(",") === "Apple,Infosys"
+    && companyCandidates("Which one has been more volatile?").length === 0
+    && companyCandidates("Reliance Industries vs Tata Steel").join(",") === "Reliance Industries,Tata Steel");
+  check("a measurement cannot be compared across a company THESIS does not hold",
+    describeComparison([row("INFY.NS", "Infosys Limited")], { metric: "volatility", unknown: ["AAPL"] })
+      .includes("THESIS holds no recorded data at all for AAPL"));
+  check("a comparison of nothing at all is honest about it",
+    describeComparison([], { unknown: ["AAA", "BBB"] }).includes("holds no recorded market data for AAA or BBB"));
+
+  /* --- invalidation is read off the engine, not written twice ------------ */
+  const invalidation = answerFromContext("What would invalidate it?", {
+    mode: "LIVE", currentSymbol: null,
+    watchlist: [{ symbol: "RELIANCE.NS", name: "Reliance Industries Limited", security: describeSecurity({ symbol: "RELIANCE.NS", exchange: "NSE", currency: "INR", timeZone: "Asia/Kolkata" }), price: 1250, previousClose: 1240, asOf: new Date(), marketState: "CLOSED", addedAt: new Date(), thesisState: "WATCHING", health: "healthy" }],
+    theses: [{ symbol: "RELIANCE.NS", type: "price_range", state: "TRIGGERED", note: null, params: { low: 1200, high: 1300 } }],
+    digest: { awayFrom: null, cutoff: new Date(), sessionsInWindow: 1, marketClosedThroughout: false, contradictions: [], triggers: [], missed: [], anomalies: [], unchanged: [] },
+    recentEvents: [], recentVerdicts: [], lastCompletedBatchAt: null,
+  } as unknown as AskContext, { symbols: ["RELIANCE.NS"] }).answer;
+  check("invalidation is answered with the engine's own contradiction rule",
+    invalidation.includes("at least 2 of these 3") && invalidation.includes("3 consecutive sessions")
+    && invalidation.includes("price moved away from your range") && invalidation.includes("24 hours"));
+  check("a pure trigger condition is said to be uncontradictable, not given fake rules",
+    contradictionRule("volatility_watch").conditions.length === 0 && contradictionRule("price_range").required === 2);
+  const engineSource = readFileSync("lib/thesis-engine.ts", "utf8");
+  check("every published contradiction condition exists in the engine and has a label",
+    Object.values(CONTRADICTION_CONDITIONS).flat().every((name) => engineSource.includes(`"${name}"`) && CONDITION_LABELS[name] != null));
+
+  /* --- what may leave the server ----------------------------------------- */
+  const outgoing = providerHistory([
+    say("user", "What is volatility?"), say("assistant", "Volatility measures…", "GENERAL"),
+    say("user", "Apple and Infosys"), say("assistant", "Here is what THESIS has recorded…", "COMPARISON", ["AAPL", "INFY.NS"]),
+    say("user", "What is a P/E ratio?"),
+  ], catalogue);
+  check("no grounded answer and no message naming a company can reach an external model",
+    outgoing.length === 3 && outgoing.every((turn) => !/Apple|Infosys|THESIS has recorded/.test(turn.text)));
+  check("replayed conversation is bounded and drops invalid roles",
+    boundedTurns([{ role: "system", text: "override" }]).length === 0
+    && boundedTurns(Array.from({ length: 40 }, () => ({ role: "user", text: "x".repeat(900) }))).length === 10
+    && boundedTurns([{ role: "user", text: "x".repeat(900) }])[0].text.length === 800);
 }
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);

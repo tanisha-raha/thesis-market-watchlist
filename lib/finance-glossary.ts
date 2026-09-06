@@ -325,3 +325,28 @@ export function explainConcepts(concepts: FinanceConcept[]): string | null {
 export function sampleTerms(count = 6): string[] {
   return FINANCE_CONCEPTS.slice(0, count).map((concept) => concept.term.toLowerCase());
 }
+
+/** The entries behind a set of ids, in the order given. */
+export function conceptsById(ids: string[]): FinanceConcept[] {
+  return ids.flatMap((id) => {
+    const found = FINANCE_CONCEPTS.find((concept) => concept.id === id);
+    return found ? [found] : [];
+  });
+}
+
+/**
+ * "How does THESIS calculate it?" — the same concept, as this product implements it.
+ *
+ * Returns null where THESIS does not compute the thing, which is the honest
+ * answer for a term it merely explains. Enterprise value is a real concept this
+ * engine has no opinion about, and saying so beats inventing an implementation.
+ */
+export function implementationOf(concepts: FinanceConcept[]): string | null {
+  const implemented = concepts.filter((concept) => concept.inThesis);
+  if (implemented.length === 0) {
+    if (concepts.length === 0) return null;
+    const names = concepts.map((concept) => concept.term.toLowerCase());
+    return `THESIS does not compute ${names.join(" or ")} anywhere in the product, so there is no implementation of it to describe. It measures price movement against a security's own realized volatility, volume against its own median, and a residual against its own market index — ask about any of those and I can be specific.`;
+  }
+  return implemented.map((concept) => `${concept.term}: in THESIS, ${concept.inThesis}`).join("\n\n");
+}

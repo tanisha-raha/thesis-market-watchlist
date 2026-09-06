@@ -158,6 +158,47 @@ try {
   const evidence = await ask("Explain the latest INFY evidence.");
   check("stored evidence or honest absence", /no stored detected event|was marked for .* at /.test(evidence.answer));
   check("unwatched symbol cannot widen context", (await ask("Explain NOTWATCHEDCHECK.NS event")).answer.includes("not on your watchlist"));
+
+  // FIVE CONVERSATIONS, IN ONE CHAT. Each second turn names nothing: it is
+  // answerable only because the turn before it is still in the conversation.
+  const refusal = await ask("Which stock should I invest in?");
+  check("C1 · advice is refused and a comparison is offered",
+    refusal.category === "NON-ADVISORY" && /Which companies are you considering\?/.test(refusal.answer));
+  const compared = await ask("Apple and Infosys");
+  check("C1 · naming two companies next is understood as the comparison",
+    compared.category === "COMPARISON" && compared.answer.includes("AAPL") && compared.answer.includes("INFY.NS")
+    && /not a recommendation/.test(compared.answer));
+
+  const changed = await ask("What changed for INFY.NS?");
+  check("C2 · a named company is answered from its own records", changed.category === "THESIS DATA" && changed.answer.includes("INFY.NS"));
+  const wasUnusual = await ask("Was that unusual?");
+  check("C2 · “was that unusual” resolves to the same company",
+    wasUnusual.category === "THESIS DATA" && wasUnusual.answer.includes("INFY.NS") && /anomaly layer/.test(wasUnusual.answer));
+
+  const explained = await ask("Explain my INFY thesis");
+  check("C3 · the saved condition is read back", explained.category === "THESIS DATA" && explained.answer.includes("₹1,000.00 to ₹1,100.00"));
+  const invalidates = await ask("What would invalidate it?");
+  check("C3 · invalidation comes from the deterministic contradiction rule",
+    invalidates.category === "THESIS DATA" && /at least 2 of these 3/.test(invalidates.answer)
+    && /3 consecutive sessions/.test(invalidates.answer) && invalidates.answer.includes("INFY.NS"));
+
+  const volatility = await ask("What is volatility?");
+  check("C4 · a concept question is general", volatility.category === "GENERAL" && /standard deviation/i.test(volatility.answer));
+  const howCalculated = await ask("How does THESIS calculate it?");
+  check("C4 · the follow-up explains this product's own implementation",
+    howCalculated.category === "GENERAL" && /20 daily log returns/.test(howCalculated.answer));
+
+  const pair = await ask("Compare Apple and Infosys");
+  check("C5 · an explicit comparison is grounded in stored evidence",
+    pair.category === "COMPARISON" && pair.answer.includes("AAPL") && pair.answer.includes("INFY.NS"));
+  const moreVolatile = await ask("Which one has been more volatile?");
+  check("C5 · a measurement follow-up keeps both companies",
+    moreVolatile.category === "COMPARISON"
+    && /realized volatility|no stored 20-day realized volatility/.test(moreVolatile.answer)
+    && moreVolatile.answer.includes("AAPL") && moreVolatile.answer.includes("INFY.NS"));
+  check("no answer in the conversation fell back to a not-connected message",
+    ![refusal, compared, changed, wasUnusual, explained, invalidates, volatility, howCalculated, pair, moreVolatile]
+      .some((reply) => /aren’t connected|not connected/i.test(String(reply.answer))));
   const priorMessages = await page.locator(".chat-message").count(); await page.reload();
   await expect(page.locator(".chat-message")).toHaveCount(priorMessages);
   check("conversation persists during the same user session", true);
