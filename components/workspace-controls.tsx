@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { AddSymbolForm } from "@/app/watchlist/add-symbol-form";
 import { Modal } from "@/components/modal";
 import { BrandMark, Icon } from "@/components/ui";
@@ -15,6 +15,7 @@ export function useWorkspace() {
   return value;
 }
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [add, setAdd] = useState<{ symbol: string } | null>(null);
   const openAdd = useCallback((symbol = "") => setAdd({ symbol }), []);
@@ -36,7 +37,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     fromHash();
     window.addEventListener("hashchange", fromHash);
     return () => window.removeEventListener("hashchange", fromHash);
-  }, [openAdd]);
+  }, [openAdd, pathname]);
   return <WorkspaceContext.Provider value={{ openAdd, menuOpen, setMenuOpen }}>
     {children}
     <Modal open={add !== null} onClose={closeAdd} label="Add stock" className="add-dialog">
@@ -87,7 +88,6 @@ export function GlobalSearch({ watched }: { watched: string[] }) {
   const [state, setState] = useState("idle");
   const [expanded, setExpanded] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const router = useRouter();
   /**
    * Search is discovery, not an add shortcut.
    *
@@ -96,9 +96,8 @@ export function GlobalSearch({ watched }: { watched: string[] }) {
    * worth writing down. Adding still happens through the watchlist's own flow,
    * from the button on that page.
    */
-  const select = (symbol: string) => {
+  const select = () => {
     setExpanded(false); setQuery("");
-    router.push(`/symbol/${encodeURIComponent(symbol)}`);
   };
   useEffect(() => {
     const shortcut = (e: KeyboardEvent) => {
@@ -129,10 +128,10 @@ export function GlobalSearch({ watched }: { watched: string[] }) {
       {state === "loading" && <p role="status">Searching…</p>}
       {state === "error" && <p role="alert">Search is unavailable. Try again shortly.</p>}
       {state === "ready" && results.length === 0 && <p>No supported companies found.</p>}
-      {results.map((result) => <button key={result.symbol} type="button" onClick={() => select(result.symbol)}>
+      {results.map((result) => <Link key={result.symbol} href={`/symbol/${encodeURIComponent(result.symbol)}`} onClick={select}>
         <span className="search-company"><strong>{result.name ?? result.symbol}</strong><small><span className="num">{result.symbol}</span>{result.exchange ? ` · ${[result.exchange, result.market].filter(Boolean).join(" · ")}` : ""}</small></span>
         <span className="text-accent text-meta">{watched.includes(result.symbol) ? "Watching" : "View"}<Icon name="arrow" size={13} /></span>
-      </button>)}
+      </Link>)}
     </div>}
   </div>;
 }

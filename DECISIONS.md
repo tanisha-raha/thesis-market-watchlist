@@ -1011,3 +1011,28 @@ person than silently dropping it.
 **Verified before submission:** ten migrations applied, typecheck clean, 205 test
 assertions, 48 smoke checks against the live provider, 82 browser checks, the visual
 matrix across four viewports in both themes, and a clean production build.
+
+## 2026-09-06 — Fix measured production navigation, not just local render traces
+
+The previous performance pass did not solve warm browser navigation. Three-round
+canonical production measurements reproduced 1.1–1.9 second ordinary transitions
+and 4–6 second outliers around Digest and watched Symbol Detail. A protected
+diagnostic deployment proved that Vercel ran in Northern Virginia (`iad1`) while
+the existing pooled Neon database was in Singapore (`ap-southeast-1`). Warm simple
+reads cost 430–455 ms each; the symbol replay read chain alone cost 1,966 ms.
+
+Functions now target Singapore (`sin1`), without moving or migrating the database.
+The existing visual shell is owned by an authenticated route-group layout, with
+prefetchable loading UI below it and fresh, user-scoped page snapshots. Every page
+still authenticates independently; no user data is globally cached. Global search
+results are Next Links. Provider lookups, including first-ever company resolution,
+are below the route loading boundary. No engine or provider semantics changed.
+
+Digest receipts use a same-origin authenticated JSON endpoint rather than the
+navigation action queue. The server action and endpoint share the exact same
+monotonic, completed-batch-clamped helper. Failed delivery leaves the window unread.
+Regression tests cover future/invalid cutoffs, user scope, pending-receipt
+navigation, origin/auth guards, persistent shell identity and first destination UI.
+
+See [the measurement report](docs/navigation-performance.md) for baseline,
+production verification status, timing definitions and reproduction commands.

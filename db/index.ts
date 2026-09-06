@@ -5,6 +5,12 @@ import * as schema from "./schema";
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set. Copy .env.example to .env.local and fill it in.");
 
+// Opt-in operational metadata only. Never log the hostname, URL or credentials.
+if (process.env.THESIS_TRACE === "1") {
+  const host = new URL(url).hostname;
+  console.log(`[trace] database region=${host.match(/([a-z]+-[a-z]+-\d+)/)?.[1] ?? "local-or-unknown"} function=${process.env.VERCEL_REGION ?? "local"}`);
+}
+
 /**
  * One driver for local Postgres and for Neon, over plain TCP against Neon's
  * pooled endpoint. Serverless invocations are short-lived, so the pool is capped

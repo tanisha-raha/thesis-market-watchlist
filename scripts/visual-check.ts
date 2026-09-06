@@ -12,7 +12,7 @@ await mkdir(output, { recursive: true });
 async function shot(name: string) {
   // Streamed sections must have arrived: a screenshot of a placeholder is not a
   // screenshot of the product.
-  await expect(page.locator(".is-loading")).toHaveCount(0, { timeout: 30000 });
+  await expect(page.locator(".is-loading,[data-navigation-loading]")).toHaveCount(0, { timeout: 30000 });
   await page.screenshot({ path: `${output}/${name}.png`, fullPage: true, animations: "disabled" });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error(`Overflow: ${name}`);
   console.log(`PASS layout ${name}`);

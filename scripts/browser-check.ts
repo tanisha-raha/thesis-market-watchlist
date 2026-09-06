@@ -10,7 +10,7 @@ let checks = 0;
 function check(label: string, value: boolean) { if (!value) throw new Error(label); checks++; console.log(`PASS ${label}`); }
 async function visit(path: string) { await page.goto(base + path); await expect(page.locator(".terminal")).toBeVisible(); await settled(); }
 /** Streamed sections render placeholders first; assert on the real thing. */
-async function settled() { await expect(page.locator(".is-loading")).toHaveCount(0, { timeout: 30000 }); }
+async function settled() { await expect(page.locator(".is-loading,[data-navigation-loading]")).toHaveCount(0, { timeout: 30000 }); }
 async function account() { await page.getByRole("button", { name: "Account menu", exact: true }).click(); await expect(page.getByRole("region", { name: "Your account" })).toBeVisible(); }
 async function logout() { await account(); await page.getByRole("button", { name: "Sign out", exact: true }).click(); await page.waitForURL("**/login"); }
 async function ask(question: string) {
@@ -155,12 +155,14 @@ try {
   /* ---- search is discovery: inspect a company before watching it ----------- */
   const search = page.getByLabel("Search companies");
   await search.fill("BlackRock");
-  const blk = page.locator(".search-results button", { hasText: "BLK" }).first();
+  const blk = page.locator(".search-results a", { hasText: "BLK" }).first();
   await blk.waitFor({ timeout: 20000 });
   check("global search returns BlackRock on NYSE, not an NSE-only message", /NYSE/.test(await blk.innerText()) && !/No NSE symbols found/.test(await page.locator(".search-results").innerText()));
   check("search results offer navigation, not an add shortcut", /View/.test(await blk.innerText()) && !/\bAdd\b/.test(await blk.innerText()));
   await blk.click();
   await page.waitForURL("**/symbol/BLK", { timeout: 30000 });
+  await settled();
+  await expect(page.locator(".symbol-heading")).toBeVisible();
   check("selecting a company opens its detail page without adding it", !(await page.locator(".terminal").innerText()).includes("In watchlist"));
   const unwatched = await page.locator("body").innerText();
   check("an unwatched company still shows real market data", /\$[\d,]+\.\d{2}/.test(unwatched) && /NYSE/.test(unwatched) && /Previous close/.test(unwatched));
@@ -172,11 +174,13 @@ try {
     && !/TRIGGERED|CONTRADICTED|STILL VALID/.test(unwatched));
   for (const [query, expected, exchange] of [["Apple", "AAPL", "NASDAQ"], ["Infosys", "INFY.NS", "NSE"]] as const) {
     await search.fill(query);
-    const row = page.locator(".search-results button", { hasText: expected }).first();
+    const row = page.locator(".search-results a", { hasText: expected }).first();
     await row.waitFor({ timeout: 20000 });
     check(`searching ${query} reaches ${expected} on ${exchange}`, new RegExp(exchange).test(await row.innerText()));
     await row.click();
     await page.waitForURL(`**/symbol/${encodeURIComponent(expected)}`, { timeout: 30000 });
+    await settled();
+    await expect(page.locator(".symbol-heading")).toBeVisible();
     check(`${expected} detail opens without being watched first`, (await page.locator(".symbol-heading").innerText()).includes(exchange));
   }
 

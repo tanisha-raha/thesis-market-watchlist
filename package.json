@@ -14,6 +14,7 @@
     "validate:source": "node --env-file-if-exists=.env.local --import tsx scripts/validate-source.ts",
     "smoke": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/smoke.ts",
     "browser-check": "tsx scripts/browser-check.ts",
+    "navigation-check": "tsx scripts/navigation-check.ts",
     "visual-check": "tsx scripts/visual-check.ts",
     "visual-history-check": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/visual-history-check.ts",
     "seed:intraday": "node --env-file-if-exists=.env.local --import tsx scripts/seed-intraday.ts",

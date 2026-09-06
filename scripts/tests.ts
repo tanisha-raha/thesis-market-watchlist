@@ -54,6 +54,8 @@ import { evidenceFrom } from "@/lib/digest";
 import { watchlistFeed } from "@/components/ui";
 import type { WatchlistRow } from "@/lib/watchlist";
 import { fetchMarketNews, parseMarketNews } from "@/lib/market-news";
+import { recordDigestReceipt } from "@/lib/digest-receipt";
+import { lastCommittedBatchAt } from "@/lib/ingestion";
 
 let passed = 0;
 let failed = 0;
@@ -622,6 +624,19 @@ section("digest read receipts are monotonic and scoped to the watchlist");
   check("digest receipt creates a per-symbol watermark", state != null);
   check("an older tab cannot move the watermark backwards",
     state.lastSeenAt.getTime() === newer.getTime(), state.lastSeenAt.toISOString());
+
+  await recordDigestReceipt(u.id, "invalid");
+  const [unchanged] = await db.select().from(userSymbolReadState).where(eq(userSymbolReadState.userId, u.id));
+  check("invalid background receipt cannot advance a watermark", unchanged.lastSeenAt.getTime() === newer.getTime());
+  const committed = await lastCommittedBatchAt();
+  await recordDigestReceipt(u.id, "2099-01-01T00:00:00.000Z");
+  const [clamped] = await db.select().from(userSymbolReadState).where(eq(userSymbolReadState.userId, u.id));
+  check("background receipt clamps a future cutoff to a completed batch", committed != null && clamped.lastSeenAt.getTime() === Math.max(newer.getTime(), committed.getTime()));
+  const [other] = await db.insert(users).values({ email: `receipt-other+${Date.now()}@example.com`, passwordHash: "x" }).returning();
+  await recordDigestReceipt(other.id, "2099-01-01T00:00:00.000Z");
+  const otherState = await db.select().from(userSymbolReadState).where(eq(userSymbolReadState.userId, other.id));
+  check("background receipt never acknowledges another user's symbols", otherState.length === 0);
+  await db.delete(users).where(eq(users.id, other.id));
 
   await db.delete(users).where(eq(users.id, u.id));
 }

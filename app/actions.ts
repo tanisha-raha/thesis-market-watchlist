@@ -5,8 +5,7 @@ import { revalidatePath } from "next/cache";
 import { authenticate, createSession, destroySession, getSessionUser, registerUser, setDisplayName } from "@/lib/auth";
 import { addSymbol, removeSymbol } from "@/lib/watchlist";
 import { acknowledgeThesis, createThesis, creationContext } from "@/lib/thesis";
-import { advanceDigestWatermark } from "@/lib/digest";
-import { lastCommittedBatchAt } from "@/lib/ingestion";
+import { recordDigestReceipt } from "@/lib/digest-receipt";
 import type { ThesisType } from "@/lib/thesis-engine";
 
 export type FormState = { error?: string } | undefined;
@@ -103,7 +102,7 @@ export async function addToWatchlist(_prev: FormState, formData: FormData): Prom
     await createThesis({ watchlistItemId: result.watchlistItemId, type: resolvedType, params, note });
     if (missingParams) {
       revalidatePath("/watchlist");
-      revalidatePath("/symbol/[symbol]", "page");
+      revalidatePath("/(workspace)/symbol/[symbol]", "page");
       return { error: "Saved without a monitored condition — that thesis type needs a price level." };
     }
   }
@@ -112,7 +111,7 @@ export async function addToWatchlist(_prev: FormState, formData: FormData): Prom
   revalidatePath("/digest");
   // A company can now be added from its own detail page, which then has to stop
   // showing the "not watched" state it rendered a moment ago.
-  revalidatePath("/symbol/[symbol]", "page");
+  revalidatePath("/(workspace)/symbol/[symbol]", "page");
   return {};
 }
 
@@ -122,7 +121,7 @@ export async function removeFromWatchlist(formData: FormData): Promise<void> {
 
   await removeSymbol(user.id, String(formData.get("symbol") ?? ""));
   revalidatePath("/watchlist");
-  revalidatePath("/symbol/[symbol]", "page");
+  revalidatePath("/(workspace)/symbol/[symbol]", "page");
 }
 
 /**
@@ -145,12 +144,5 @@ export async function markDigestRead(cutoffIso: string): Promise<void> {
   const user = await getSessionUser();
   if (!user) return;
 
-  const requested = new Date(cutoffIso);
-  if (!Number.isFinite(requested.getTime())) return;
-  const committed = await lastCommittedBatchAt();
-  if (!committed) return;
-
-  // A caller can only acknowledge the snapshot it saw, never a future batch.
-  const cutoff = requested <= committed ? requested : committed;
-  await advanceDigestWatermark(user.id, cutoff);
+  await recordDigestReceipt(user.id, cutoffIso);
 }

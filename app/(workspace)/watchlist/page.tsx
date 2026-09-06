@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { getWatchlist } from "@/lib/watchlist";
 import { getPresentationData } from "@/lib/presentation";
-import { WatchlistTable } from "./watchlist-table";
+import { WatchlistTable } from "@/app/watchlist/watchlist-table";
 import { AppShell } from "@/components/app-shell";
 import { DashboardCard } from "@/components/ui";
 import { AddStockButton } from "@/components/workspace-controls";
