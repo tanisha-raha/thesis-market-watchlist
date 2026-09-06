@@ -29,6 +29,22 @@ import { currentDataMode } from "@/lib/ml/anomaly-server";
  * notification centre fetches after mount, which is where generation happens.
  */
 
+/**
+ * An additive feature must not take the product down before its migration runs.
+ *
+ * Narrowly scoped on purpose: only "relation does not exist" is absorbed, and
+ * only into the empty answer. Anything else is a real fault and is rethrown, so
+ * this cannot become a place where genuine errors go quiet.
+ */
+const MISSING_TABLE = "42P01";
+const isMissingTable = (error: unknown) =>
+  typeof error === "object" && error != null && (error as { code?: string }).code === MISSING_TABLE;
+
+async function whenReady<T>(work: () => Promise<T>, fallback: T): Promise<T> {
+  try { return await work(); }
+  catch (error) { if (isMissingTable(error)) return fallback; throw error; }
+}
+
 export type NotificationType =
   | "CONDITION_TRIGGERED"
   | "THESIS_MATERIALLY_WEAKENED"
@@ -233,6 +249,10 @@ async function candidates(userId: number): Promise<Candidate[]> {
  * time, and two concurrent runs cannot both win.
  */
 export async function generateNotifications(userId: number): Promise<number> {
+  return whenReady(() => generate(userId), 0);
+}
+
+async function generate(userId: number): Promise<number> {
   const preferences = await getPreferences(userId);
   if (!preferences.inApp) return 0;
   const rows = (await candidates(userId)).filter((candidate) => preferences[GATE[candidate.type]]);
@@ -254,6 +274,10 @@ export async function generateNotifications(userId: number): Promise<number> {
 const LIST_LIMIT = 30;
 
 export async function listNotifications(userId: number): Promise<NotificationRow[]> {
+  return whenReady(() => list(userId), []);
+}
+
+async function list(userId: number): Promise<NotificationRow[]> {
   const rows = await db.select({
       id: notifications.id, symbol: notifications.symbol, type: notifications.type,
       health: notifications.health, reason: notifications.reason, link: notifications.link,
@@ -267,21 +291,21 @@ export async function listNotifications(userId: number): Promise<NotificationRow
 }
 
 export async function markAllRead(userId: number): Promise<void> {
-  await db.update(notifications).set({ readAt: new Date() })
-    .where(and(eq(notifications.userId, userId), sql`${notifications.readAt} is null`));
+  await whenReady(() => db.update(notifications).set({ readAt: new Date() })
+    .where(and(eq(notifications.userId, userId), sql`${notifications.readAt} is null`)), undefined);
 }
 
 /** Scoped by user id in the predicate, so one account cannot read another's. */
 export async function markRead(userId: number, id: number): Promise<void> {
-  await db.update(notifications).set({ readAt: new Date() })
-    .where(and(eq(notifications.userId, userId), eq(notifications.id, id), sql`${notifications.readAt} is null`));
+  await whenReady(() => db.update(notifications).set({ readAt: new Date() })
+    .where(and(eq(notifications.userId, userId), eq(notifications.id, id), sql`${notifications.readAt} is null`)), undefined);
 }
 
 /* ------------------------------------------------------------- preferences */
 
 export async function getPreferences(userId: number): Promise<NotificationPreferences> {
-  const [row] = await db.select().from(notificationPreferences)
-    .where(eq(notificationPreferences.userId, userId)).limit(1);
+  const [row] = await whenReady(() => db.select().from(notificationPreferences)
+    .where(eq(notificationPreferences.userId, userId)).limit(1), []);
   if (!row) return { ...DEFAULT_PREFERENCES };
   return {
     inApp: row.inApp, onTrigger: row.onTrigger, onNeedsAttention: row.onNeedsAttention,
@@ -291,8 +315,8 @@ export async function getPreferences(userId: number): Promise<NotificationPrefer
 
 export async function savePreferences(userId: number, next: Partial<NotificationPreferences>): Promise<NotificationPreferences> {
   const merged = { ...(await getPreferences(userId)), ...next };
-  await db.insert(notificationPreferences)
+  await whenReady(() => db.insert(notificationPreferences)
     .values({ userId, ...merged, updatedAt: new Date() })
-    .onConflictDoUpdate({ target: notificationPreferences.userId, set: { ...merged, updatedAt: new Date() } });
+    .onConflictDoUpdate({ target: notificationPreferences.userId, set: { ...merged, updatedAt: new Date() } }), undefined);
   return merged;
 }
