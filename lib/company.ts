@@ -156,13 +156,30 @@ export async function getCompanyView(userId: number, rawSymbol: string): Promise
   const symbol = normalizeSymbol(rawSymbol);
   if (!symbol) return null;
 
-  const [[tracked], [item], [storedQuote], [statsRow]] = await traced("company:coreQueries", () => Promise.all([
-    db.select().from(symbols).where(eq(symbols.symbol, symbol)).limit(1),
-    db.select({ id: watchlistItems.id }).from(watchlistItems)
-      .where(and(eq(watchlistItems.userId, userId), eq(watchlistItems.symbol, symbol))).limit(1),
-    db.select().from(quotes).where(eq(quotes.symbol, symbol)).limit(1),
-    db.select().from(symbolStats).where(eq(symbolStats.symbol, symbol)).limit(1),
-  ]));
+  // ONE ROUND TRIP FOR EVERY STORED READ THIS PAGE NEEDS. The history reads used
+  // to wait to learn whether the symbol was tracked, which cost a second serial
+  // trip for the sake of skipping two queries that return nothing for a symbol
+  // we hold no rows for. Issuing them together is the cheaper trade.
+  const close = sql<string>`coalesce(${priceBars.currentProviderAdjClose}, ${priceBars.currentProviderClose})`;
+  const [[tracked], [item], [storedQuote], [statsRow], storedBars, observations] =
+    await traced("company:storedReads", () => Promise.all([
+      db.select().from(symbols).where(eq(symbols.symbol, symbol)).limit(1),
+      db.select({ id: watchlistItems.id }).from(watchlistItems)
+        .where(and(eq(watchlistItems.userId, userId), eq(watchlistItems.symbol, symbol))).limit(1),
+      db.select().from(quotes).where(eq(quotes.symbol, symbol)).limit(1),
+      db.select().from(symbolStats).where(eq(symbolStats.symbol, symbol)).limit(1),
+      db.select({
+          date: priceBars.tradingDate, close,
+          open: priceBars.currentProviderOpen, raw: priceBars.currentProviderClose,
+          volume: priceBars.currentProviderVolume,
+        }).from(priceBars)
+        .where(and(eq(priceBars.symbol, symbol), isNotNull(close), gt(close, "0"), gt(priceBars.currentProviderVolume, "0")))
+        .orderBy(desc(priceBars.tradingDate)).limit(DAILY_SESSIONS),
+      db.select({ at: quoteObservations.asOf, price: quoteObservations.price })
+        .from(quoteObservations)
+        .where(and(eq(quoteObservations.symbol, symbol), gte(quoteObservations.asOf, new Date(Date.now() - INTRADAY_DAYS * 864e5))))
+        .orderBy(asc(quoteObservations.asOf)).limit(INTRADAY_LIMIT),
+    ]));
 
   // Never seen before: one bounded lookup decides whether this is a real security
   // at all. An unresolvable ticker is a 404, not an empty page pretending to be one.
@@ -176,25 +193,6 @@ export async function getCompanyView(userId: number, rawSymbol: string): Promise
     currency: tracked?.currency ?? lookup?.currency ?? null,
     timeZone: tracked?.exchangeTimezone ?? lookup?.timeZone ?? null,
   });
-
-  const close = sql<string>`coalesce(${priceBars.currentProviderAdjClose}, ${priceBars.currentProviderClose})`;
-  const [storedBars, observations] = await traced("company:historyQueries", () => Promise.all([
-    tracked
-      ? db.select({
-          date: priceBars.tradingDate, close,
-          open: priceBars.currentProviderOpen, raw: priceBars.currentProviderClose,
-          volume: priceBars.currentProviderVolume,
-        }).from(priceBars)
-        .where(and(eq(priceBars.symbol, symbol), isNotNull(close), gt(close, "0"), gt(priceBars.currentProviderVolume, "0")))
-        .orderBy(desc(priceBars.tradingDate)).limit(DAILY_SESSIONS)
-      : Promise.resolve([]),
-    tracked
-      ? db.select({ at: quoteObservations.asOf, price: quoteObservations.price })
-        .from(quoteObservations)
-        .where(and(eq(quoteObservations.symbol, symbol), gte(quoteObservations.asOf, new Date(Date.now() - INTRADAY_DAYS * 864e5))))
-        .orderBy(asc(quoteObservations.asOf)).limit(INTRADAY_LIMIT)
-      : Promise.resolve([]),
-  ]));
 
   const stored = storedBars.reverse();
   const daily: HistoryPoint[] = stored.flatMap((bar) => {

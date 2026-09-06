@@ -1,18 +1,16 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { changeEvents, theses, thesisEvents, watchlistItems } from "@/db/schema";
+import { theses, watchlistItems } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
-import { evidenceFrom } from "@/lib/digest";
 import { getWatchlist } from "@/lib/watchlist";
 import { getCompanyView } from "@/lib/company";
 import type { StoredThesis } from "@/lib/presentation";
 import { Evidence } from "@/components/evidence";
 import { formatExchangeTime } from "@/lib/time";
 import { formatCount, marketLine } from "@/lib/securities";
-import { signalLabel } from "@/lib/recorded-evidence";
 import { indexDisplayName } from "@/lib/market-brief";
 import { acknowledge } from "@/app/actions";
 import { AppShell } from "@/components/app-shell";
@@ -21,11 +19,11 @@ import { ThesisCard } from "@/components/dashboard-widgets";
 import { SymbolChart } from "@/components/symbol-chart";
 import { PriceHistorySection, PriceHistorySkeleton, MarketDataSection, MarketDataSkeleton } from "@/components/company-sections";
 import { AddToWatchlistButton } from "@/components/workspace-controls";
-import { ThesisReplay } from "@/components/thesis-replay";
-import { getThesisReplay } from "@/lib/thesis-replay-server";
 import { MarketPattern } from "@/components/market-pattern";
-import { RecordedEvidence } from "@/components/recorded-evidence";
-import { getLatestAnomaly } from "@/lib/ml/anomaly-server";
+import {
+  MarketPatternSection, MarketPatternSkeleton, SymbolEventsSection, SymbolEventsSkeleton,
+  ThesisReplaySection, ThesisReplaySkeleton,
+} from "@/components/symbol-sections";
 import { traceRoute, traced } from "@/lib/trace";
 
 /**
@@ -48,27 +46,23 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
   if (!company) notFound();
   const { symbol, security, quote, stats } = company;
 
-  const [item] = company.watched
-    ? await db.select({
-        itemId: watchlistItems.id, thesisId: theses.id, thesisType: theses.type, thesisNote: theses.note,
-        thesisState: theses.state, thesisCreatedAt: theses.createdAt, paramsAdjustedAt: theses.paramsAdjustedAt,
-        thesisParams: theses.paramsJson,
-      })
-      .from(watchlistItems).leftJoin(theses, eq(theses.watchlistItemId, watchlistItems.id))
-      .where(eq(watchlistItems.id, company.watchlistItemId!)).limit(1)
-    : [undefined];
-
-  const [events, verdicts, rows, replay, anomaly] = await Promise.all([
-    traced("symbol:events", () => db.select().from(changeEvents).where(eq(changeEvents.symbol, symbol)).orderBy(desc(changeEvents.occurredAt)).limit(12)),
-    traced("symbol:verdicts", () => item?.thesisId
-      ? db.select().from(thesisEvents).where(eq(thesisEvents.thesisId, item.thesisId)).orderBy(desc(thesisEvents.occurredAt)).limit(6)
+  // Everything the visible top of the page needs, in one round trip. The event
+  // history, the replay and the anomaly classification stream in behind their
+  // own boundaries — see components/symbol-sections.tsx.
+  const [items, rows] = await Promise.all([
+    traced("symbol:thesis", () => company.watched
+      ? db.select({
+          itemId: watchlistItems.id, thesisId: theses.id, thesisType: theses.type, thesisNote: theses.note,
+          thesisState: theses.state, thesisCreatedAt: theses.createdAt, paramsAdjustedAt: theses.paramsAdjustedAt,
+          thesisParams: theses.paramsJson,
+        })
+        .from(watchlistItems).leftJoin(theses, eq(theses.watchlistItemId, watchlistItems.id))
+        .where(eq(watchlistItems.id, company.watchlistItemId!)).limit(1)
       : Promise.resolve([])),
     traced("symbol:watchlist", () => getWatchlist(user.id)),
-    traced("symbol:replay", () => company.watched ? getThesisReplay(user.id, symbol) : Promise.resolve(null)),
-    // Read-only: the evidence recorded when the model ran, never a fit per render.
-    traced("symbol:anomaly", () => getLatestAnomaly(symbol).catch(() => null)),
   ]);
   done();
+  const item = items[0];
 
   const money = (value: number | null) => formatPrice(value, security.currency);
   const at = (value: Date) => formatExchangeTime(value, security.timeZone);
@@ -77,11 +71,6 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
   const thesis: StoredThesis | undefined = item?.thesisId && item.thesisCreatedAt
     ? { id: item.thesisId, symbol, type: item.thesisType ?? "none", state: item.thesisState ?? "WATCHING", params: item.thesisParams, note: item.thesisNote, createdAt: item.thesisCreatedAt }
     : undefined;
-  // Recorded Evidence belongs to a detected market event, not to a thesis
-  // verdict: the verdict's own evidence stays in the Thesis Timeline, where the
-  // user's condition lives. Event selection does not exist on this page, so the
-  // most recent event is shown and named explicitly.
-  const latestEvent = events[0];
   const demo = process.env.THESIS_DATA_MODE === "demo";
 
   // The session panel shows only what the source actually gave us: stored bars
@@ -146,9 +135,14 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
     </div>
 
     {/* Secondary evidence, and placed after the thesis surfaces for that reason. */}
-    <MarketPattern anomaly={anomaly} timeZone={security.timeZone} monitored={company.historySource === "stored"} />
+    {company.historySource === "stored"
+      ? <Suspense fallback={<MarketPatternSkeleton />}><MarketPatternSection symbol={symbol} timeZone={security.timeZone} /></Suspense>
+      // Not monitored: there is nothing to classify and no read to make.
+      : <MarketPattern anomaly={null} timeZone={security.timeZone} monitored={false} />}
 
-    {company.watched && <ThesisReplay result={replay} demo={demo} exchange={security.exchange} />}
+    {company.watched && <Suspense fallback={<ThesisReplaySkeleton />}>
+      <ThesisReplaySection userId={user.id} symbol={symbol} demo={demo} exchange={security.exchange} />
+    </Suspense>}
 
     <div className="two-column mt-4">
       {company.historySource === "stored"
@@ -180,28 +174,16 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
       </DashboardCard>
     </div>
 
-    <div className="two-column mt-4">
-      <DashboardCard title="Recent Events & Reversals" meta={<span className="count-chip">{events.length}</span>}>
-        {events.length === 0
-          ? <EmptyState title="No detected events recorded." description={`THESIS holds ${stats?.sessionsUsed ?? 0} usable sessions for this symbol. No event evidence is available to display.`} />
-          : <div className="symbol-events">{events.map((event) => <article key={event.id} className={`symbol-event ${event.id === latestEvent?.id ? "is-current" : ""}`}><div className="symbol-event-heading"><strong className="text-meta font-medium">{signalLabel(event.signalType)}</strong><StatusBadge state={event.resolvedAt ? "RESOLVED" : "DETECTED"} /></div><p className="text-micro text-faint mt-2">Occurred {at(event.occurredAt)} · detected {at(event.detectedAt)}{event.resolvedAt && ` → ${at(event.resolvedAt)} · reversed`}</p><div className="mt-3"><Evidence entries={evidenceFrom(event.explainJson as Record<string, unknown>, security.currency).slice(0, 5)} /></div></article>)}</div>}
-      </DashboardCard>
-      {company.watched
-        ? <DashboardCard title="Thesis Timeline" meta={<span className="count-chip">{verdicts.length}</span>}>
-            {verdicts.length
-              ? <div className="symbol-events">{verdicts.map((verdict) => <article key={verdict.id} className="symbol-event"><div className="symbol-event-heading"><StatusBadge state={verdict.kind.toUpperCase()} /><time>{at(verdict.occurredAt)}</time></div><p className="mt-2 text-meta text-muted break-words">{(verdict.conditionsMetJson as string[]).join(", ").replace(/_/g, " ")}</p><div className="mt-3"><Evidence entries={evidenceFrom(verdict.evidenceJson as Record<string, unknown>, security.currency)} /></div></article>)}</div>
-              : <EmptyState title="No thesis verdicts yet" description={thesis ? "Your saved condition has no recorded trigger or contradiction. Its current state is shown in My Thesis." : "Add a structured thesis to monitor the reason you’re watching."} icon="shield" />}
-          </DashboardCard>
-        : <DashboardCard title="Thesis Timeline" action={<span className="status-badge neutral">NOT WATCHED</span>}>
-            <EmptyState title="No personal timeline for a company you don’t watch" description="Detected market events are shown on the left. Trigger, contradiction and missed-event verdicts are recorded against your own stated condition once you add this company." icon="shield" />
-          </DashboardCard>}
-    </div>
-
-    {/* The evidence belongs to the event above it, and says which one. */}
-    <RecordedEvidence
-      event={latestEvent ? { signalType: latestEvent.signalType, occurredAt: latestEvent.occurredAt, resolvedAt: latestEvent.resolvedAt, explain: latestEvent.explainJson as Record<string, unknown> } : null}
-      currency={security.currency}
-      timeZone={security.timeZone}
-      company={company.name ?? symbol} />
+    <Suspense fallback={<SymbolEventsSkeleton />}>
+      <SymbolEventsSection
+        userId={user.id}
+        symbol={symbol}
+        watched={company.watched}
+        currency={security.currency}
+        timeZone={security.timeZone}
+        company={company.name ?? symbol}
+        sessionsUsed={stats?.sessionsUsed ?? 0}
+        hasThesis={thesis != null} />
+    </Suspense>
   </AppShell>;
 }

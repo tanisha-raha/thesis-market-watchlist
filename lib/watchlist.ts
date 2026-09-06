@@ -1,13 +1,15 @@
 import "server-only";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { quotes, symbols, theses, watchlistItems } from "@/db/schema";
 import { liveProvider } from "@/lib/market/live";
 import { classify, type FeedHealth } from "@/lib/feed-health";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { describeSecurity, type Security } from "@/lib/securities";
+import { bounded } from "@/lib/market-brief";
+import type { SearchResult } from "@/lib/market/types";
 import { traced } from "@/lib/trace";
 
 /** `excluded.<col>` in an ON CONFLICT DO UPDATE — the row Postgres tried to insert. */
@@ -210,9 +212,45 @@ const cachedSearch = unstable_cache(
   { revalidate: 60 },
 );
 
-export async function searchSymbols(query: string) {
+/**
+ * Companies THESIS already knows about, matched locally.
+ *
+ * The seeded catalogue is the set people actually type — the companies on the
+ * watchlists this deployment already carries — and it lives one query away in a
+ * database that is now next to the function. Indices are excluded because they
+ * are not companies, exactly as the provider path filters to EQUITY.
+ */
+const LOCAL_LIMIT = 8;
+export async function searchLocalCatalogue(query: string): Promise<SearchResult[]> {
+  const pattern = `%${query.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  const rows = await db.select({ symbol: symbols.symbol, name: symbols.name, exchange: symbols.exchange, currency: symbols.currency, timeZone: symbols.exchangeTimezone })
+    .from(symbols)
+    .where(and(sql`${symbols.symbol} NOT LIKE '^%'`, or(ilike(symbols.symbol, pattern), ilike(symbols.name, pattern))))
+    .orderBy(asc(symbols.symbol)).limit(LOCAL_LIMIT);
+  return rows.map((row) => {
+    const security = describeSecurity({ symbol: row.symbol, name: row.name, exchange: row.exchange, currency: row.currency, timeZone: row.timeZone });
+    return { symbol: row.symbol, name: security.name, exchange: security.exchange, market: security.marketLabel };
+  });
+}
+
+/**
+ * How long the dropdown may wait on the provider.
+ *
+ * A query the local catalogue already answered does not need to sit on a
+ * datacenter round trip to Yahoo before showing anything, so the provider gets a
+ * short budget there and a full one when it is the only source that can answer.
+ * Nothing is invented on timeout: the user sees the real local matches, and the
+ * sixty-second cache means the provider's own results are there on the repeat.
+ */
+const PROVIDER_BUDGET_MS = 2500;
+const PROVIDER_BUDGET_WITH_LOCAL_MS = 700;
+
+export async function searchSymbols(query: string): Promise<SearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
-  try { return await cachedSearch(trimmed.toLowerCase()); }
-  catch { return []; }
+  const local = await searchLocalCatalogue(trimmed).catch(() => [] as SearchResult[]);
+  const provider = await bounded(cachedSearch(trimmed.toLowerCase()), local.length ? PROVIDER_BUDGET_WITH_LOCAL_MS : PROVIDER_BUDGET_MS)
+    .catch(() => [] as SearchResult[]);
+  const seen = new Set(local.map((result) => result.symbol));
+  return [...local, ...provider.filter((result) => !seen.has(result.symbol))];
 }

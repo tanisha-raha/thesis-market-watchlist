@@ -458,7 +458,7 @@ The suite is written around the promises the product makes, not around coverage:
 - **global support** — search, currency, exchange clocks and benchmarks across NSE/NASDAQ/NYSE
 - **cross-user isolation** — no user's context can widen to another user's data
 
-Latest verified run: **205 assertions passing**, **48 smoke checks**, **82 browser
+Latest verified run: **214 assertions passing**, **48 smoke checks**, **82 browser
 checks**, a clean production build, and the visual matrix passing across four viewports
 in both themes.
 

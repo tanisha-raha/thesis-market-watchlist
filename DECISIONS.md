@@ -1036,3 +1036,37 @@ navigation, origin/auth guards, persistent shell identity and first destination 
 
 See [the measurement report](docs/navigation-performance.md) for baseline,
 production verification status, timing definitions and reproduction commands.
+
+## 2026-09-06 — Round trips, not only their length
+
+Co-locating the functions with the database made a round trip cheap. It did not
+make a *chain* of them free, and the chains were why one page cost several times
+another: the watched company page waited on eight dependent database stages, the
+replay alone accounting for four of them, and `getCompanyView` paid an extra
+serial trip to learn whether a symbol was tracked before reading its history.
+Those collapse to three stages and one, with the same rows returned — the date
+predicate the replay dropped from SQL is applied in TypeScript against the same
+exchange date, and tests assert the window still ends on the previous session and
+still walks sixty.
+
+The company page now sends identity, the latest persisted price, the chart and the
+user's own thesis, and streams the event history, the recorded evidence, the replay
+and the anomaly classification behind their own boundaries. That ordering is the
+product's, not the profiler's: the reason somebody opens a company is the price and
+their own reason for watching it, and the evidence is what they scroll to. Every
+streamed section reads committed rows — no fit, no backfill, no detection, no
+statistics on a navigation — and its placeholder is an empty frame, never a figure
+that later changes.
+
+Company search answers from the stored catalogue first and merges the provider's
+results behind it, so a company THESIS already knows does not wait on a datacenter
+round trip to Yahoo. The provider still runs and still supplies everything the
+catalogue cannot; on timeout the dropdown shows the real local rows rather than an
+invented one, and indices are excluded exactly as the provider path filters to
+equities.
+
+Verified on an unpromoted deployment before the canonical alias was moved: seven
+warm production navigations reach their destination shell in 10–15 ms and usable
+content in 312–320 ms, against 1.1–7.8 seconds before. 214 test assertions, 48
+smoke checks, 82 browser checks, the visual matrix and a clean production build.
+See [the measurement report](docs/navigation-performance.md).

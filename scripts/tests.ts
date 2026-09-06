@@ -52,7 +52,7 @@ import { marketStatusFrom, marketStatusLine, REGION_PRIMARY_INDEX } from "@/lib/
 import { exchangeDate, formatExchangeTime, zonedInstant } from "@/lib/time";
 import { evidenceFrom } from "@/lib/digest";
 import { watchlistFeed } from "@/components/ui";
-import type { WatchlistRow } from "@/lib/watchlist";
+import { searchLocalCatalogue, searchSymbols, type WatchlistRow } from "@/lib/watchlist";
 import { fetchMarketNews, parseMarketNews } from "@/lib/market-news";
 import { recordDigestReceipt } from "@/lib/digest-receipt";
 import { lastCommittedBatchAt } from "@/lib/ingestion";
@@ -1192,6 +1192,44 @@ section("Recorded evidence and account identity");
     && !/"system"|'system'|>System</.test(readFileSync("components/account-menu.tsx", "utf8")));
   check("the account control never renders an email as the identity",
     !readFileSync("components/account-menu.tsx", "utf8").includes("name || email"));
+}
+
+/* ------------------------------------------------------------------------- */
+section("Navigation reads — consolidated, and still exact");
+{
+  // The reads behind a page were collapsed into fewer round trips because the
+  // database is a network hop away. Fewer trips must not mean different rows:
+  // these assert the boundaries that the removed SQL predicates used to hold.
+  await reset();
+  const zone = "Asia/Kolkata";
+  const today = exchangeDate(new Date(), zone);
+  const day = (back: number) => new Date(Date.parse(`${today}T00:00:00Z`) - back * 864e5).toISOString().slice(0, 10);
+  const dates = Array.from({ length: 70 }, (_, i) => day(69 - i));
+  await ingestHistory(new ReplayMarketDataProvider({ bars: { [SYM]: dates.map((d) => bar(d, 105)) } }), SYM, 400);
+
+  const [replayUser] = await db.insert(users)
+    .values({ email: `replay+${Date.now()}@example.com`, passwordHash: "x" }).returning();
+  const [replayItem] = await db.insert(watchlistItems).values({ userId: replayUser.id, symbol: SYM }).returning();
+  await db.insert(theses).values({ watchlistItemId: replayItem.id, type: "price_range", paramsJson: { low: 100, high: 110 } });
+
+  const walked = await getThesisReplay(replayUser.id, SYM);
+  check("replay still excludes the exchange's own current session",
+    walked?.status === "ready" && walked.through === day(1) && walked.through !== today);
+  check("replay still walks its full window after the date filter moved off SQL",
+    walked?.status === "ready" && walked.sessions === 60);
+  check("history is still refused to an account that does not watch the symbol",
+    await getThesisReplay(-1, SYM) === null);
+
+  await db.insert(symbols).values({ symbol: "^TESTIDX", name: "Test Index" }).onConflictDoNothing();
+  const catalogue = await searchLocalCatalogue("Test");
+  check("company search answers from the stored catalogue with no provider call",
+    catalogue.some((result) => result.symbol === SYM && result.market === "India"));
+  check("an index is never offered as a company to watch",
+    !catalogue.some((result) => result.symbol.startsWith("^")));
+  check("a one-character query still resolves to nothing at all",
+    (await searchSymbols("a")).length === 0);
+  await db.delete(symbols).where(eq(symbols.symbol, "^TESTIDX"));
+  await db.delete(users).where(eq(users.id, replayUser.id));
 }
 
 console.log(`\n${failed === 0 ? "PASS" : "FAIL"} — ${passed} passed, ${failed} failed`);
